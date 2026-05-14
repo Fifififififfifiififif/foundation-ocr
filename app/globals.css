@@ -1,0 +1,185 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+}
+
+:root {
+  --radius: 0.625rem;
+  /*
+   * Jasny — stonowana, lekko ciepła baza (canvas / rail / wklęsłe muted), białe karty.
+   * Primary / ring nadpisuje AppearanceHydrator (kolor fundacji); reszta tokenów zostaje.
+   */
+  --background: #e8e6e1;
+  --foreground: #1c1917;
+  --card: #ffffff;
+  --card-foreground: #1c1917;
+  --popover: #ffffff;
+  --popover-foreground: #1c1917;
+  --primary: #1c1917;
+  --primary-foreground: #fafaf9;
+  --secondary: #e4e2dc;
+  --secondary-foreground: #1c1917;
+  --muted: #d9d6ce;
+  --muted-foreground: #57534e;
+  --accent: #dddad2;
+  --accent-foreground: #292524;
+  --destructive: #dc2626;
+  --destructive-foreground: #fef2f2;
+  --border: #c4bfb4;
+  --input: #ada598;
+  --ring: #44403c;
+  --sidebar: #f2f0eb;
+  --sidebar-foreground: #1c1917;
+  --sidebar-accent: #e6e3dc;
+  --sidebar-accent-foreground: #292524;
+  --sidebar-border: #d1ccc2;
+  --foundation-accent: #292524;
+}
+
+/* Przyciski primary z gradientem akcentu (ustawiane przez AppearanceHydrator: data-accent-gradient + --primary-gradient) */
+html[data-accent-gradient="1"] [data-slot="button"][data-variant="default"]:not(:disabled) {
+  background-color: transparent !important;
+  background-image: var(--primary-gradient) !important;
+  border-color: transparent;
+}
+html[data-accent-gradient="1"] [data-slot="button"][data-variant="default"]:not(:disabled):hover {
+  filter: brightness(0.93);
+}
+html[data-accent-gradient="1"] [data-slot="button"][data-variant="default"]:not(:disabled):active {
+  filter: brightness(0.88);
+}
+
+/* Kalendarz faktur (react-day-picker) — spójny z motywem shadcn */
+.invoice-rdp.rdp-root,
+.rdp-root.invoice-rdp {
+  --rdp-accent-color: var(--foundation-accent, var(--primary));
+  --rdp-accent-background-color: color-mix(
+    in oklab,
+    var(--foundation-accent, var(--primary)) 16%,
+    var(--card)
+  );
+  --rdp-day_button-border-radius: 0.5rem;
+  --rdp-day-height: auto;
+  --rdp-day-width: 100%;
+  --rdp-day_button-height: auto;
+  --rdp-day_button-width: 100%;
+  --rdp-weekday-padding: 0.55rem 0.35rem;
+  --rdp-nav-height: 2.5rem;
+}
+
+.invoice-rdp .rdp-months {
+  justify-content: center;
+  max-width: none;
+  width: 100%;
+}
+
+.invoice-rdp .rdp-month {
+  width: 100%;
+  max-width: none;
+}
+
+.invoice-rdp .rdp-month_grid {
+  width: 100%;
+  table-layout: fixed;
+  border-collapse: separate;
+  border-spacing: 0.2rem 0.35rem;
+}
+
+.invoice-rdp .rdp-day {
+  vertical-align: middle;
+  height: 7.25rem;
+  min-height: 7.25rem;
+  width: 14.2857%;
+}
+
+.invoice-rdp .rdp-weekdays {
+  margin-top: 0.5rem;
+  margin-bottom: 0.15rem;
+}
+
+.invoice-rdp .rdp-weekday {
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted-foreground);
+}
+
+.invoice-rdp .rdp-caption_dropdowns {
+  gap: 0.35rem;
+}
+
+.invoice-rdp .rdp-day_button {
+  transition:
+    background-color 0.15s ease,
+    box-shadow 0.15s ease,
+    color 0.15s ease,
+    border-color 0.15s ease;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  min-height: 100%;
+  max-width: 100%;
+}
+
+.invoice-rdp .rdp-selected .rdp-day_button {
+  border-color: transparent;
+}
+
+.dark {
+  --background: #09090b;
+  --foreground: #fafafa;
+  --card: #09090b;
+  --card-foreground: #fafafa;
+  --popover: #09090b;
+  --popover-foreground: #fafafa;
+  --primary: #fafafa;
+  --primary-foreground: #18181b;
+  --secondary: #27272a;
+  --secondary-foreground: #fafafa;
+  --muted: #27272a;
+  --muted-foreground: #a1a1aa;
+  --accent: #27272a;
+  --accent-foreground: #fafafa;
+  --destructive: #f87171;
+  --destructive-foreground: #18181b;
+  --border: #27272a;
+  --input: #27272a;
+  --ring: #d4d4d8;
+  --sidebar: #09090b;
+  --sidebar-foreground: #fafafa;
+  --sidebar-accent: #27272a;
+  --sidebar-accent-foreground: #fafafa;
+  --sidebar-border: #27272a;
+}

@@ -1,0 +1,274 @@
+generator client {
+  provider = "prisma-client-js"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum OrganizationRole {
+  ADMIN
+  ACCOUNTANT
+  MANAGER
+  USER
+}
+
+model User {
+  id            String           @id
+  name          String
+  email         String
+  emailVerified Boolean
+  image         String?
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
+  /// Rola w obrębie organizacji (RBAC).
+  role          OrganizationRole @default(USER)
+  banned        Boolean          @default(false)
+  banReason     String?
+  banExpires    DateTime?
+
+  organizationId String?
+  organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+
+  accounts Account[]
+  sessions Session[]
+
+  documentsCreated    Document[]        @relation("DocumentCreatedBy")
+  documentHistory     DocumentHistory[]
+  inAppNotifications  InAppNotification[]
+
+  @@unique([email])
+  @@index([organizationId])
+  @@map("user")
+}
+
+/// Sesje Better Auth
+model Session {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  token     String   @unique
+  expiresAt DateTime
+  ipAddress String?
+  userAgent String?  @db.Text
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+  @@map("session")
+}
+
+/// Konta OAuth / hasło (credential) — Better Auth
+model Account {
+  id                    String    @id @default(cuid())
+  userId                String
+  user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  accountId             String
+  providerId            String
+  accessToken           String?   @db.Text
+  refreshToken          String?   @db.Text
+  accessTokenExpiresAt  DateTime?
+  refreshTokenExpiresAt DateTime?
+  scope                 String?
+  idToken               String?   @db.Text
+  password              String?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  @@unique([providerId, accountId])
+  @@index([userId])
+  @@map("account")
+}
+
+/// Tokeny weryfikacji e-mail / resetu hasła — Better Auth
+model Verification {
+  id         String   @id @default(cuid())
+  identifier String
+  value      String   @db.Text
+  expiresAt  DateTime
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([identifier])
+  @@map("verification")
+}
+
+model InAppNotification {
+  id             String   @id @default(cuid())
+  userId         String
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  type           String   @default("document")
+  title          String
+  body           String?
+  href           String?
+  dedupeKey      String?
+  readAt         DateTime?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@unique([userId, dedupeKey])
+  @@index([userId, readAt])
+  @@index([organizationId])
+  @@map("in_app_notification")
+}
+
+// ── Multi-tenant organization (settings + branding) ──
+
+model Organization {
+  id   String @id @default(cuid())
+  name String @default("Moja organizacja")
+
+  tagline  String?
+  logoPath String?
+  /// Kolor akcentu UI (#RRGGBB lub zapis gradientu jak wcześniej)
+  accentColor String  @default("#18181b")
+  fontColor   String?
+
+  contactEmail     String?
+  address          String? @db.Text
+  phone            String?
+  organizationInfo String? @db.Text
+  nip              String?
+  regon            String?
+  krs              String?
+
+  appLanguage String @default("pl")
+  timezone    String @default("Europe/Warsaw")
+  dateFormat  String @default("dd.MM.yyyy")
+  currency    String @default("PLN")
+
+  emailAlertsGeneral Boolean @default(true)
+  emailAlertsOcr     Boolean @default(true)
+  emailAlertsExport  Boolean @default(true)
+
+  sessionTimeoutMinutes Int     @default(480)
+  twoFactorEnabled      Boolean @default(false)
+
+  ocrEnabled     Boolean @default(true)
+  maxUploadBytes Int     @default(10485760)
+
+  appearanceTheme String @default("system")
+  sidebarStyle    String @default("default")
+  uiDensity       String @default("comfortable")
+  dashboardPreferences Json @default("{}")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  users               User[]
+  projects            Project[]
+  contractors         Contractor[]
+  documents           Document[]
+  documentHistories   DocumentHistory[]
+  notifications       InAppNotification[]
+
+  @@map("organization")
+}
+
+// ── Domain (tenant-scoped) ──
+
+model Project {
+  id              String   @id @default(cuid())
+  organizationId  String
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  name            String
+  grantNumber     String
+  fundingSource   String
+  budget          Decimal? @db.Decimal(14, 2)
+  description     String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  documents       Document[]
+
+  @@index([organizationId])
+  @@map("project")
+}
+
+model Contractor {
+  id             String   @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  name           String
+  nip            String?
+  email          String?
+  phone          String?
+  address        String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  documents      Document[]
+
+  @@index([organizationId])
+  @@map("contractor")
+}
+
+enum DocumentStatus {
+  draft
+  review
+  approved
+}
+
+model Document {
+  id               String       @id @default(cuid())
+  organizationId   String
+  organization     Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  invoiceNumber      String?
+  issueDate          DateTime?
+  paymentDate        DateTime?
+  amountNet          Decimal?       @db.Decimal(14, 2)
+  amountVat          Decimal?       @db.Decimal(14, 2)
+  amountGross        Decimal?       @db.Decimal(14, 2)
+  documentType       String?
+  ocrVendorName      String?
+  ocrContractorNip   String?
+  ocrBankAccount     String?
+  ocrMeanConfidence  Int?
+  ocrManualReviewRecommended Boolean @default(false)
+  ocrQualityReasons  Json?
+  notes              String?
+  expenseCategory    String?
+  status             DocumentStatus @default(draft)
+  archived           Boolean        @default(false)
+  filePath           String
+  fileName           String
+  mimeType           String
+  ocrRawText         String?
+  createdAt          DateTime       @default(now())
+  updatedAt          DateTime       @updatedAt
+
+  projectId String?
+  project   Project? @relation(fields: [projectId], references: [id], onDelete: Restrict)
+
+  contractorId String?
+  contractor   Contractor? @relation(fields: [contractorId], references: [id], onDelete: Restrict)
+
+  createdByUserId String?
+  createdBy       User?   @relation("DocumentCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+
+  history DocumentHistory[]
+
+  @@index([organizationId])
+  @@index([organizationId, archived])
+  @@index([organizationId, status])
+  @@map("document")
+}
+
+model DocumentHistory {
+  id             String   @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  documentId     String
+  document       Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  userId         String
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  fieldName      String
+  oldValue       String?
+  newValue       String?
+  createdAt      DateTime @default(now())
+
+  @@index([organizationId])
+  @@index([documentId])
+  @@map("document_history")
+}
