@@ -10,8 +10,9 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { ErrorBanner } from "@/components/ui/error-banner";
-import { getAppContext } from "@/lib/app-context";
 import { getOrganizationById } from "@/lib/organization-settings";
+import { mayRunOcrPipeline } from "@/src/modules/permissions/check";
+import { requirePermission } from "@/lib/require-permission";
 import prisma from "@/lib/prisma";
 
 export default async function NewDocumentPage({
@@ -22,7 +23,8 @@ export default async function NewDocumentPage({
   const sp = await searchParams;
   const error = typeof sp.error === "string" ? sp.error : null;
 
-  const { organizationId: orgId } = await getAppContext();
+  const ctx = await requirePermission("documents.write");
+  const { organizationId: orgId, enabledModules } = ctx;
 
   const [projects, contractors, org] = await Promise.all([
     prisma.project.findMany({
@@ -42,14 +44,16 @@ export default async function NewDocumentPage({
     <div className="mx-auto max-w-lg">
       <PageHeader
         title="Nowa faktura"
-        description="Prześlij PDF lub skan. Projekt i kontrahent są opcjonalne — możesz przypisać je później lub pozostawić puste."
+        description="Prześlij PDF lub skan — OCR opcjonalnie wypełni pola. Możesz też utworzyć fakturę bez pliku."
       />
-      <Link
-        href="/documents"
-        className="text-muted-foreground hover:text-foreground mb-6 inline-flex text-sm font-medium transition-colors"
-      >
-        ← Wróć do listy faktur
-      </Link>
+      <div className="text-muted-foreground mb-6 flex flex-wrap gap-4 text-sm">
+        <Link href="/documents" className="hover:text-foreground font-medium transition-colors">
+          ← Lista faktur
+        </Link>
+        <Link href="/documents/manual/new" className="hover:text-foreground font-medium transition-colors">
+          Utwórz fakturę ręcznie (bez OCR)
+        </Link>
+      </div>
       <ErrorBanner message={error} />
       <Card className="border-border/80 shadow-sm">
         <CardHeader>
@@ -63,7 +67,7 @@ export default async function NewDocumentPage({
             projects={projects}
             contractors={contractors}
             maxUploadBytes={org.maxUploadBytes}
-            ocrEnabled={org.ocrEnabled}
+            ocrEnabled={mayRunOcrPipeline(enabledModules, org.ocrEnabled, ctx.entitlement)}
           />
         </CardContent>
       </Card>

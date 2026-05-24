@@ -7,6 +7,7 @@ import { Loader2 } from "lucide-react";
 
 import { updateAppearanceSettings } from "@/app/actions/foundation-settings";
 import { AccentColorPanel, FontColorPanel } from "@/components/settings/theme-color-panels";
+import { applyAccentVariables } from "@/lib/apply-appearance";
 import { parseAccentStored, serializeAccent, type ParsedAccent } from "@/lib/accent-color";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -52,6 +53,10 @@ export function AppearanceSettingsForm({
   const [accentUi, setAccentUi] = useState<ParsedAccent>(() => parseAccentStored(initialAccent));
   const [fontOverride, setFontOverride] = useState<string | null>(initialFontColor);
   const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    applyAccentVariables(document.documentElement, serializeAccent(accentUi));
+  }, [accentUi]);
 
   useEffect(() => {
     setTheme(appearanceTheme);

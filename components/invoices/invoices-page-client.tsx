@@ -59,8 +59,9 @@ export type InvoiceRow = {
   status: "draft" | "review" | "approved";
   statusLabel: string;
   archived: boolean;
-  fileName: string;
-  filePath: string;
+  fileName: string | null;
+  filePath: string | null;
+  source?: string;
 };
 
 type Props = {
@@ -136,14 +137,24 @@ export function InvoicesPageClient({
       const folder = zip.folder("faktury");
       if (!folder) throw new Error("zip");
 
+      let skippedFiles = 0;
       for (const d of pack.documents) {
+        if (!d.downloadUrl || !d.fileName) {
+          skippedFiles += 1;
+          continue;
+        }
         const fileRes = await fetch(d.downloadUrl, { credentials: "include" });
         if (!fileRes.ok) {
-          toast.error(`Nie udało się pobrać pliku: ${d.fileName}`);
-          return;
+          skippedFiles += 1;
+          continue;
         }
         const buf = await fileRes.arrayBuffer();
         folder.file(d.fileName, buf);
+      }
+      if (skippedFiles > 0) {
+        toast.message(
+          `${skippedFiles} faktur bez załączonego pliku — pominięto w ZIP (CSV i metadata nadal w paczce).`,
+        );
       }
 
       zip.file("podsumowanie.csv", pack.csv);
@@ -300,11 +311,13 @@ export function InvoicesPageClient({
                           <Link href={`/documents/${d.id}/verify`}>Weryfikacja OCR</Link>
                         </DropdownMenuItem>
                         <DropdownMenuSeparator />
-                        <DropdownMenuItem asChild>
-                          <Link href={`/api/files/${encodeURIComponent(d.filePath)}`} target="_blank" rel="noreferrer">
-                            Pobierz plik
-                          </Link>
-                        </DropdownMenuItem>
+                        {d.filePath ? (
+                          <DropdownMenuItem asChild>
+                            <Link href={`/api/files/${encodeURIComponent(d.filePath)}`} target="_blank" rel="noreferrer">
+                              Pobierz plik
+                            </Link>
+                          </DropdownMenuItem>
+                        ) : null}
                       </DropdownMenuContent>
                     </DropdownMenu>
                   </TableCell>

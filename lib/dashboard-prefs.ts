@@ -1,3 +1,5 @@
+import type { ModuleKey } from "@/generated/prisma";
+
 export type DashboardWidgetsPrefs = {
   kpi: boolean;
   calendar: boolean;
@@ -46,4 +48,18 @@ export function parseDashboardPrefs(raw: unknown): DashboardPrefs {
     recent: typeof w.recent === "boolean" ? w.recent : DEFAULT_DASHBOARD_PREFS.widgets.recent,
   };
   return { defaultLanding: defLanding, widgets };
+}
+
+/** Widżety pulpitu po uwzględnieniu włączonych modułów organizacji. */
+export function effectiveDashboardWidgets(
+  prefs: DashboardPrefs,
+  enabledModules: ReadonlySet<ModuleKey>,
+): DashboardWidgetsPrefs {
+  return {
+    kpi: prefs.widgets.kpi,
+    calendar: prefs.widgets.calendar && enabledModules.has("CALENDAR"),
+    charts: prefs.widgets.charts && enabledModules.has("ANALYTICS"),
+    projectsBreakdown: prefs.widgets.projectsBreakdown && enabledModules.has("PROJECTS"),
+    recent: prefs.widgets.recent,
+  };
 }

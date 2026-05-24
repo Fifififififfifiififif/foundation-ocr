@@ -3,17 +3,21 @@ import { format } from "date-fns";
 
 import prisma from "@/lib/prisma";
 import { documentsToCsv } from "@/lib/csv";
-import { getAppContext } from "@/lib/app-context";
-import { roleHasPermission } from "@/lib/permissions";
+import { getApiAppContext } from "@/lib/api-app-context";
+import { recordUsageMetric } from "@/src/modules/subscription/enforce";
 import type { DocumentStatus } from "@/generated/prisma";
 import { buildDocumentWhere } from "@/lib/queries/document-list";
 import { UNASSIGNED_LABEL } from "@/lib/optional-relation-ids";
 
 export async function GET(request: NextRequest) {
-  const { organizationId: orgId, user } = await getAppContext();
-  if (!roleHasPermission(user.role, "documents.export")) {
-    return new NextResponse("Brak uprawnień.", { status: 403 });
-  }
+  const resolved = await getApiAppContext({
+    permission: "documents.export",
+    module: "EXPORTS",
+    feature: "export_csv",
+    quota: "exports",
+  });
+  if (!resolved.ok) return resolved.response;
+  const { organizationId: orgId } = resolved.ctx;
 
   const sp = request.nextUrl.searchParams;
   const projectId = sp.get("projectId") || undefined;

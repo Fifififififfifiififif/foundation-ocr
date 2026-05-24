@@ -1,37 +1,92 @@
 import { type NextRequest, NextResponse } from "next/server";
-import { getSessionCookie } from "better-auth/cookies";
 
-const PUBLIC_PREFIXES = [
+import {
+  authBypassEnabled,
+  devLoginAvailable,
+  isSupabaseAuthConfigured,
+} from "@/src/modules/auth/config";
+import { hasForcedDevUser, isDevSignedOutFromRequest } from "@/src/modules/auth/dev-session.shared";
+import {
+  getSupabaseUserFromRequest,
+  updateSupabaseSession,
+} from "@/src/modules/auth/supabase/middleware";
+
+const PUBLIC_PATHS = [
   "/logowanie",
   "/rejestracja",
   "/zapomniane-haslo",
   "/reset-hasla",
-  "/reset-password",
-  "/api/auth",
+  "/zaproszenie",
+  "/auth/callback",
+  "/api/krs",
 ];
 
-export function proxy(request: NextRequest) {
+const AUTH_PATHS = ["/logowanie", "/rejestracja", "/zapomniane-haslo", "/reset-hasla"];
+
+function isPublicPath(pathname: string): boolean {
+  return PUBLIC_PATHS.some((p) => pathname === p || pathname.startsWith(`${p}/`));
+}
+
+function devBypassActive(request: NextRequest): boolean {
+  if (isDevSignedOutFromRequest(request.cookies)) return false;
+  return authBypassEnabled() || hasForcedDevUser();
+}
+
+export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
-  if (PUBLIC_PREFIXES.some((p) => pathname === p || pathname.startsWith(`${p}/`))) {
+  if (
+    pathname.startsWith("/_next") ||
+    pathname.startsWith("/api/files") ||
+    pathname.startsWith("/api/cron") ||
+    pathname.includes(".")
+  ) {
     return NextResponse.next();
   }
 
-  const sessionCookie = getSessionCookie(request);
-  if (!sessionCookie) {
+  const response = await updateSupabaseSession(request);
+  const signedOut = isDevSignedOutFromRequest(request.cookies);
+
+  if (isPublicPath(pathname)) {
+    if (signedOut) return response;
+    if (devBypassActive(request)) return response;
+    if (!isSupabaseAuthConfigured()) return response;
+
+    const user = await getSupabaseUserFromRequest(request);
+    if (user && AUTH_PATHS.includes(pathname)) {
+      return NextResponse.redirect(new URL("/dashboard", request.url));
+    }
+    return response;
+  }
+
+  if (devBypassActive(request)) {
+    return response;
+  }
+
+  if (!isSupabaseAuthConfigured()) {
     const login = new URL("/logowanie", request.url);
-    const dest = pathname + request.nextUrl.search;
-    if (dest && dest !== "/") login.searchParams.set("callbackUrl", dest);
+    login.searchParams.set("next", pathname);
+    if (devLoginAvailable()) {
+      login.searchParams.set("hint", "dev");
+    }
     return NextResponse.redirect(login);
   }
 
-  if (sessionCookie && (pathname === "/logowanie" || pathname === "/rejestracja")) {
+  const user = await getSupabaseUserFromRequest(request);
+
+  if (!user) {
+    const login = new URL("/logowanie", request.url);
+    login.searchParams.set("next", pathname);
+    return NextResponse.redirect(login);
+  }
+
+  if (AUTH_PATHS.includes(pathname)) {
     return NextResponse.redirect(new URL("/dashboard", request.url));
   }
 
-  return NextResponse.next();
+  return response;
 }
 
 export const config = {
-  matcher: ["/((?!_next|api/files|favicon\\.ico|.*\\.).*)"],
+  matcher: ["/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)"],
 };

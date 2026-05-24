@@ -9,14 +9,27 @@ import { retryDocumentOcr } from "@/app/actions/documents";
 import { Button } from "@/components/ui/button";
 import { WarningBanner } from "@/components/ui/warning-banner";
 
+const OCR_STATUS_LABEL: Record<string, string> = {
+  idle: "Oczekuje",
+  processing: "Przetwarzanie…",
+  completed: "Zakończono",
+  failed: "Błąd OCR",
+};
+
 export function DocumentVerifyOcrPanel({
   documentId,
   ocrMeanConfidence,
+  ocrParsingConfidence,
+  ocrProcessingStatus,
+  ocrProcessingError,
   manualReviewRecommended,
   qualityReasons,
 }: {
   documentId: string;
   ocrMeanConfidence: number | null;
+  ocrParsingConfidence?: number | null;
+  ocrProcessingStatus?: string | null;
+  ocrProcessingError?: string | null;
   manualReviewRecommended: boolean;
   qualityReasons: unknown;
 }) {
@@ -58,17 +71,32 @@ export function DocumentVerifyOcrPanel({
         </WarningBanner>
       )}
 
-      {ocrMeanConfidence != null && (
-        <p className="text-muted-foreground text-xs">
-          Średnia pewność OCR (obraz):{" "}
-          <span className="text-foreground font-medium tabular-nums">{ocrMeanConfidence}%</span>
-          {ocrMeanConfidence < 78 ? " — zalecamy dokładną kontrolę." : ""}
-        </p>
-      )}
+      <p className="text-muted-foreground text-xs">
+        Silnik: <span className="text-foreground font-medium">Tesseract.js</span> (pol+eng). Status:{" "}
+        <span className="text-foreground font-medium">
+          {OCR_STATUS_LABEL[ocrProcessingStatus ?? "idle"] ?? ocrProcessingStatus}
+        </span>
+        {ocrProcessingError ? ` — ${ocrProcessingError}` : null}
+      </p>
+
+      <div className="text-muted-foreground flex flex-wrap gap-4 text-xs">
+        {ocrMeanConfidence != null && (
+          <p>
+            Pewność OCR (Tesseract):{" "}
+            <span className="text-foreground font-medium tabular-nums">{ocrMeanConfidence}%</span>
+          </p>
+        )}
+        {ocrParsingConfidence != null && (
+          <p>
+            Pewność parsowania:{" "}
+            <span className="text-foreground font-medium tabular-nums">{ocrParsingConfidence}%</span>
+          </p>
+        )}
+      </div>
 
       <Button type="button" variant="outline" size="sm" disabled={busy} onClick={onRetry} className="w-fit gap-2">
         {busy ? <Loader2 className="size-4 animate-spin" /> : <RefreshCw className="size-4" />}
-        Ponów OCR
+        {busy ? "OCR w toku…" : "Ponów OCR (Tesseract)"}
       </Button>
     </div>
   );

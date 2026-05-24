@@ -68,7 +68,12 @@ export function OcrSettingsForm({ initial }: { initial: Initial }) {
             <SelectItem value="50">50 MB</SelectItem>
           </SelectContent>
         </Select>
-        <p className="text-muted-foreground text-sm">Obsługiwane typy: PDF, JPG, PNG (logika walidacji bez zmian).</p>
+        <p className="text-muted-foreground text-sm">
+          Obsługiwane typy: PDF, JPG, PNG. Silnik: Tesseract.js (multi-pass, pol+eng+deu+fra), zaawansowany preprocess,
+          skany PDF (render 3×). Env: <code className="bg-muted rounded px-1">OCR_LANGUAGES</code>,{" "}
+          <code className="bg-muted rounded px-1">OCR_MULTIPASS</code>,{" "}
+          <code className="bg-muted rounded px-1">OCR_MAX_PASSES</code>.
+        </p>
       </div>
 
       <Button type="submit" disabled={pending}>

@@ -9,14 +9,12 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 
 type Initial = {
-  emailAlertsGeneral: boolean;
   emailAlertsOcr: boolean;
   emailAlertsExport: boolean;
 };
 
 export function NotificationSettingsForm({ initial }: { initial: Initial }) {
   const [pending, start] = useTransition();
-  const [general, setGeneral] = useState(initial.emailAlertsGeneral);
   const [ocr, setOcr] = useState(initial.emailAlertsOcr);
   const [exp, setExp] = useState(initial.emailAlertsExport);
 
@@ -24,7 +22,6 @@ export function NotificationSettingsForm({ initial }: { initial: Initial }) {
     e.preventDefault();
     start(async () => {
       const r = await updateNotificationSettings({
-        emailAlertsGeneral: general,
         emailAlertsOcr: ocr,
         emailAlertsExport: exp,
       });
@@ -36,17 +33,9 @@ export function NotificationSettingsForm({ initial }: { initial: Initial }) {
   return (
     <form onSubmit={onSubmit} className="space-y-6">
       <div className="space-y-4">
-        <div className="flex items-start gap-3 rounded-lg border p-4">
-          <Checkbox id="g" checked={general} onCheckedChange={(v) => setGeneral(v === true)} />
-          <div className="grid gap-1">
-            <Label htmlFor="g" className="cursor-pointer font-medium">
-              Ogólne alerty e-mail
-            </Label>
-            <p className="text-muted-foreground text-sm">
-              Powiadomienia o ważnych zdarzeniach w systemie (wymaga skonfigurowanej poczty w przyszłych wersjach).
-            </p>
-          </div>
-        </div>
+        <p className="text-muted-foreground text-sm">
+          Powiadomienia w aplikacji (skrzynka w górnym pasku). Alerty e-mail nie są jeszcze wysyłane.
+        </p>
         <div className="flex items-start gap-3 rounded-lg border p-4">
           <Checkbox id="o" checked={ocr} onCheckedChange={(v) => setOcr(v === true)} />
           <div className="grid gap-1">

@@ -8,11 +8,10 @@ export default async function PowiadomieniaSettingsPage() {
     <>
       <PageHeader
         title="Powiadomienia"
-        description="Preferencje kanałów informacyjnych — wysyłka e-mail zostanie podłączona przy integracji SMTP."
+        description="Powiadomienia w aplikacji (skrzynka w panelu). Alerty e-mail nie są jeszcze wysyłane."
       />
       <NotificationSettingsForm
         initial={{
-          emailAlertsGeneral: s.emailAlertsGeneral,
           emailAlertsOcr: s.emailAlertsOcr,
           emailAlertsExport: s.emailAlertsExport,
         }}

@@ -1,12 +1,11 @@
 /**
  * Polskie etykiety nawigacji i okruszków.
- * Ścieżki URL pozostają bez zmian (np. `/dashboard`, `/documents`) — bezpieczne dla linków i zakładek.
  */
 
-/** Etykiety segmentów URL w okruszkach (klucz = segment ścieżki). */
 export const breadcrumbSegmentPl: Record<string, string> = {
   dashboard: "Panel",
   documents: "Faktury",
+  manual: "Ręcznie",
   kalendarz: "Kalendarz",
   contractors: "Kontrahenci",
   projects: "Projekty",
@@ -15,24 +14,35 @@ export const breadcrumbSegmentPl: Record<string, string> = {
   ustawienia: "Ustawienia",
   ogolne: "Ogólne",
   wyglad: "Wygląd",
-  fundacja: "Fundacja",
+  organizacja: "Organizacja",
+  fundacja: "Organizacja",
   konto: "Konto",
   powiadomienia: "Powiadomienia",
   bezpieczenstwo: "Bezpieczeństwo",
   integracje: "Integracje",
   uzytkownicy: "Użytkownicy",
+  moduly: "Moduły",
+  subskrypcja: "Subskrypcja",
+  admin: "Administracja",
+  organizations: "Organizacje",
+  modules: "Moduły",
   new: "Nowy",
   verify: "Weryfikacja",
+  edit: "Edycja",
 };
 
 export function breadcrumbSegmentLabel(i: number, seg: string, raw: string[]): string {
   if (seg === "new" && raw[i - 1] === "documents") return "Nowa faktura";
+  if (seg === "manual" && raw[i - 1] === "documents") return "Faktura ręczna";
   if (seg === "verify" && raw[i - 2] === "documents") return "Weryfikacja OCR";
   return breadcrumbSegmentPl[seg] ?? seg;
 }
 
-/** Tekst linku głównego w okruszkach (ten sam cel co pierwsza pozycja menu). */
 export const breadcrumbHomeLabel = "Panel";
 
-/** Dostępność — krótki opis logo w panelu bocznym. */
-export const a11yFoundationLogo = "Logo fundacji";
+export const a11yOrganizationLogo = "Logo organizacji";
+
+/** @deprecated */
+export const a11yFoundationLogo = a11yOrganizationLogo;
+
+export const appTaglineDefault = "Zarządzanie dokumentami";

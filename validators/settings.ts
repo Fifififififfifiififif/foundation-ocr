@@ -1,11 +1,11 @@
 import { z } from "zod";
 
 import { tryParseAccentStored } from "@/lib/accent-color";
+import { isValidPolishNip, isValidPolishRegon, normalizeKrs } from "@/src/modules/krs/validation";
 
 const tz = z.string().min(1).max(80);
 const currency = z.enum(["PLN", "EUR", "USD"]);
 
-/** Aplikacja wyłącznie po polsku; format daty wyświetlania ustalony (dd.MM.yyyy). */
 export const generalSettingsSchema = z.object({
   appLanguage: z.literal("pl"),
   timezone: tz,
@@ -27,16 +27,32 @@ const accentColorStored = z
     { message: "Nieprawidłowy kolor akcentu lub gradient." },
   );
 
-export const foundationOrgSchema = z.object({
-  foundationName: z.string().min(1).max(200),
+export const organizationOrgSchema = z.object({
+  organizationName: z.string().min(1).max(200),
   tagline: z.string().max(300),
   contactEmail: z.union([z.string().email(), z.literal("")]),
   phone: z.string().max(40),
   address: z.string().max(2000),
   organizationInfo: z.string().max(8000),
-  nip: z.string().max(20),
-  regon: z.string().max(20),
-  krs: z.string().max(20),
+  nip: z
+    .string()
+    .max(20)
+    .refine((v) => !v.trim() || isValidPolishNip(v), { message: "Nieprawidłowy NIP." }),
+  regon: z
+    .string()
+    .max(20)
+    .refine((v) => !v.trim() || isValidPolishRegon(v), { message: "Nieprawidłowy REGON." }),
+  krs: z
+    .string()
+    .max(20)
+    .refine((v) => !v.trim() || normalizeKrs(v) !== null, { message: "Nieprawidłowy KRS." }),
+  legalForm: z.string().max(300).optional(),
+  registryStatus: z.string().max(500).optional(),
+});
+
+/** @deprecated */
+export const foundationOrgSchema = organizationOrgSchema.extend({
+  foundationName: z.string().min(1).max(200).optional(),
 });
 
 export const notificationsSettingsSchema = z.object({

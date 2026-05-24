@@ -24,6 +24,7 @@ import {
 } from "@/components/ui/table";
 import { ErrorBanner } from "@/components/ui/error-banner";
 import { DocumentVerifyOcrPanel } from "@/components/documents/document-verify-ocr";
+import { deriveOcrDisplayStatus } from "@/lib/ocr-display-status";
 import prisma from "@/lib/prisma";
 import { getAppContext } from "@/lib/app-context";
 import type { EditDocumentFieldKey } from "@/lib/document-form-snapshot";
@@ -75,7 +76,7 @@ export default async function DocumentDetailPage({
     }),
   ]);
 
-  const fileUrl = `/api/files/${encodeURIComponent(doc.filePath)}`;
+  const fileUrl = doc.filePath ? `/api/files/${encodeURIComponent(doc.filePath)}` : null;
   const deleteWithId = submitDeleteDocument.bind(null, id);
 
   const defaultFieldValues: Record<EditDocumentFieldKey, string> = {
@@ -121,11 +122,15 @@ export default async function DocumentDetailPage({
               <Link href={`/documents/${id}/verify`}>Weryfikuj OCR</Link>
             </Button>
           )}
-          <Button variant="outline" size="sm" asChild>
-            <a href={fileUrl} target="_blank" rel="noreferrer">
-              Otwórz plik
-            </a>
-          </Button>
+          {fileUrl ? (
+            <Button variant="outline" size="sm" asChild>
+              <a href={fileUrl} target="_blank" rel="noreferrer">
+                Otwórz plik
+              </a>
+            </Button>
+          ) : (
+            <span className="text-muted-foreground text-sm">Faktura bez załącznika</span>
+          )}
         </div>
       </div>
 
@@ -201,6 +206,9 @@ export default async function DocumentDetailPage({
           <DocumentVerifyOcrPanel
             documentId={id}
             ocrMeanConfidence={doc.ocrMeanConfidence}
+            ocrParsingConfidence={doc.ocrParsingConfidence}
+            ocrProcessingStatus={deriveOcrDisplayStatus(doc.ocrRawText).status}
+            ocrProcessingError={null}
             manualReviewRecommended={doc.ocrManualReviewRecommended}
             qualityReasons={doc.ocrQualityReasons}
           />

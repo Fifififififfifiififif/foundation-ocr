@@ -116,7 +116,13 @@ export function DocumentUploadForm({
       return;
     }
     const steps = ocrEnabled
-      ? ["Walidacja pliku…", "Zapis na serwerze…", "Odczyt OCR (może potrwać)…", "Analiza pól faktury…"]
+      ? [
+          "Walidacja pliku…",
+          "Zapis na serwerze…",
+          "Przygotowanie obrazu (Tesseract)…",
+          "Odczyt OCR — pol+eng (może potrwać)…",
+          "Parsowanie faktury…",
+        ]
       : ["Walidacja pliku…", "Zapis na serwerze…"];
     let i = 0;
     setProgressMsg(steps[0] ?? "");
@@ -193,7 +199,7 @@ export function DocumentUploadForm({
         <p className="text-muted-foreground mt-1 text-xs">
           PDF, JPG lub PNG — do {mb} MB.{" "}
           {ocrEnabled
-            ? "OCR uruchomi się automatycznie po przesłaniu."
+            ? "Po przesłaniu: Tesseract (PL+EN), PDF ze skanem — OCR stron."
             : "OCR jest wyłączone w ustawieniach — dokument zostanie zapisany bez odczytu."}
         </p>
         <Button type="button" variant="secondary" className="mt-4" onClick={() => inputRef.current?.click()}>

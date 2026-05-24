@@ -11,7 +11,7 @@ import { getOrganizationById } from "@/lib/organization-settings";
 import { effectiveUploadMimeType } from "@/lib/uploads";
 import {
   appearanceSettingsSchema,
-  foundationOrgSchema,
+  organizationOrgSchema,
   generalSettingsSchema,
   notificationsSettingsSchema,
   ocrSettingsSchema,
@@ -23,8 +23,8 @@ export type ActionResult =
   | { ok: false; error: string };
 
 async function touchPaths() {
+  revalidatePath("/", "layout");
   revalidatePath("/dashboard");
-  revalidatePath("/");
   revalidatePath("/ustawienia");
 }
 
@@ -44,23 +44,43 @@ export async function updateGeneralSettings(input: unknown): Promise<ActionResul
   return { ok: true, message: "Ustawienia ogólne zapisane." };
 }
 
-export async function updateFoundationOrg(input: unknown): Promise<ActionResult> {
+export async function updateOrganizationProfile(input: unknown): Promise<ActionResult> {
   const { organizationId: orgId } = await requirePermission("settings.organization");
-  const parsed = foundationOrgSchema.safeParse(input);
+  const parsed = organizationOrgSchema.safeParse(input);
   if (!parsed.success) return { ok: false, error: parsed.error.issues[0]?.message ?? "Błąd walidacji" };
   const d = parsed.data;
+  const existing = await prisma.organization.findUnique({
+    where: { id: orgId },
+    select: { nip: true, regon: true, krs: true, legalForm: true, registryStatus: true, verifiedAt: true },
+  });
+  const nip = d.nip?.trim() ? d.nip.replace(/\D/g, "") : null;
+  const regon = d.regon?.trim() ? d.regon.replace(/\D/g, "") : null;
+  const krs = d.krs?.trim() ? d.krs.replace(/\D/g, "").padStart(10, "0") : null;
+  const legalForm = d.legalForm?.trim() ? d.legalForm : null;
+  const registryStatus = d.registryStatus?.trim() ? d.registryStatus : null;
+  const registryEdited =
+    existing?.verifiedAt != null &&
+    (nip !== existing.nip ||
+      regon !== existing.regon ||
+      krs !== existing.krs ||
+      legalForm !== existing.legalForm ||
+      registryStatus !== existing.registryStatus);
+
   await prisma.organization.update({
     where: { id: orgId },
     data: {
-      name: d.foundationName,
+      name: d.organizationName,
       tagline: d.tagline?.trim() ? d.tagline : null,
       contactEmail: d.contactEmail?.trim() ? d.contactEmail : null,
       phone: d.phone?.trim() ? d.phone : null,
       address: d.address?.trim() ? d.address : null,
       organizationInfo: d.organizationInfo?.trim() ? d.organizationInfo : null,
-      nip: d.nip?.trim() ? d.nip : null,
-      regon: d.regon?.trim() ? d.regon : null,
-      krs: d.krs?.trim() ? d.krs : null,
+      nip,
+      regon,
+      krs,
+      legalForm,
+      registryStatus,
+      ...(registryEdited ? { verifiedAt: null } : {}),
     },
   });
   await touchPaths();
@@ -138,7 +158,10 @@ export async function updateAppearanceSettings(input: unknown): Promise<ActionRe
 const LOGO_MAX = 2 * 1024 * 1024;
 const LOGO_MIMES = new Set(["image/png", "image/jpeg"]);
 
-export async function uploadFoundationLogo(formData: FormData): Promise<ActionResult> {
+/** @deprecated */
+export const updateFoundationOrg = updateOrganizationProfile;
+
+export async function uploadOrganizationLogo(formData: FormData): Promise<ActionResult> {
   const { organizationId: orgId } = await requirePermission("settings.organization");
   const file = formData.get("logo") as File | null;
   if (!file || file.size === 0) return { ok: false, error: "Wybierz plik graficzny (PNG lub JPG)." };
@@ -161,7 +184,10 @@ export async function uploadFoundationLogo(formData: FormData): Promise<ActionRe
   return { ok: true, message: "Logo zaktualizowane.", logoPath: relative };
 }
 
-export async function removeFoundationLogo(): Promise<ActionResult> {
+/** @deprecated */
+export const uploadFoundationLogo = uploadOrganizationLogo;
+
+export async function removeOrganizationLogo(): Promise<ActionResult> {
   const { organizationId: orgId } = await requirePermission("settings.organization");
   const s = await getOrganizationById(orgId);
   if (s.logoPath) {
@@ -178,3 +204,6 @@ export async function removeFoundationLogo(): Promise<ActionResult> {
   await touchPaths();
   return { ok: true, message: "Logo usunięte." };
 }
+
+/** @deprecated */
+export const removeFoundationLogo = removeOrganizationLogo;

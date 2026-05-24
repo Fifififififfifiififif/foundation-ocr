@@ -1,14 +1,19 @@
-import type { ParsedDocumentFields } from "./parser";
+import type { ParsedDocumentFields, ParsedInvoice } from "@/lib/ocr/invoice-types";
+import { repairOcrText } from "@/lib/ocr/ocr-corrections";
+import { parseInvoiceFull } from "@/lib/ocr/parse-invoice";
+import { toLegacyDocumentFields } from "@/lib/ocr/legacy-fields";
 
 export type OcrQualityAssessment = {
   manualReviewRequired: boolean;
   reasons: string[];
-  /** Values safe to persist after quality gates */
   fields: ParsedDocumentFields;
+  /** Pełna struktura (do UI / JSON w bazie) */
+  parsed: ParsedInvoice;
 };
 
 const HARD_LOW_CONFIDENCE = 62;
 const SOFT_LOW_CONFIDENCE = 78;
+const HARD_LOW_PARSE_SCORE = 35;
 
 function isValidPolishNip(digits: string): boolean {
   if (!/^\d{10}$/.test(digits)) return false;
@@ -20,40 +25,72 @@ function isValidPolishNip(digits: string): boolean {
   return ctrl === Number(digits[9]);
 }
 
-function amountsCoherent(
-  net: number | null,
-  vat: number | null,
-  gross: number | null,
-): { ok: boolean } {
-  if (gross != null && net != null && gross + 1e-6 < net) return { ok: false };
+function amountsCoherent(net: number | null, vat: number | null, gross: number | null): boolean {
+  if (gross == null) return net == null && vat == null;
+  if (gross != null && net != null && gross + 1e-6 < net) return false;
+  if (gross != null && net != null && vat == null) {
+    const tol = Math.max(2, Math.abs(gross) * 0.05);
+    return gross >= net - tol;
+  }
   if (gross != null && net != null && vat != null) {
     const sum = net + vat;
-    const tol = Math.max(2, Math.abs(gross) * 0.02);
-    if (Math.abs(sum - gross) > tol) return { ok: false };
+    const tol = Math.max(2, Math.abs(gross) * 0.03);
+    if (Math.abs(sum - gross) > tol) return false;
   }
-  if (gross != null && net != null && vat == null) {
-    if (gross + 1e-6 < net) return { ok: false };
+  if (gross != null && net == null && vat != null) {
+    const tol = Math.max(2, Math.abs(gross) * 0.05);
+    return Math.abs(gross - vat) <= tol || gross >= vat;
   }
-  return { ok: true };
+  return true;
+}
+
+function gateLegacyFields(f: ParsedDocumentFields): ParsedDocumentFields {
+  const out = { ...f };
+
+  if (out.nip) {
+    const d = out.nip.replace(/\D/g, "");
+    if (d.length === 10 && !isValidPolishNip(d)) out.nip = null;
+    else if (d.length === 10) out.nip = d;
+  }
+
+  if (out.invoiceNumber) {
+    const inv = out.invoiceNumber.trim();
+    if (inv.length > 48 || !/^[A-Z0-9/\-._\s]+$/i.test(inv)) out.invoiceNumber = null;
+  }
+
+  if (out.bankAccount) {
+    const b = out.bankAccount.replace(/\s/g, "").toUpperCase();
+    if (b.length >= 15 && b.length <= 34 && /^[A-Z]{2}\d{2}/.test(b)) out.bankAccount = b;
+    else out.bankAccount = null;
+  }
+
+  return out;
 }
 
 /**
- * Drop untrusted parsed values; set flags for UI when manual verification is needed.
+ * Ocena jakości OCR + parsowania; zwraca pola bezpieczne do zapisu w DB.
  */
 export function assessParsedInvoice(
-  parsed: ParsedDocumentFields,
+  parsedOrLegacy: ParsedDocumentFields | ParsedInvoice,
   rawText: string,
   meanConfidence: number | null,
 ): OcrQualityAssessment {
-  const reasons: string[] = [];
-  let manual = false;
-  const f: ParsedDocumentFields = { ...parsed };
+  const parsed: ParsedInvoice =
+    "amounts" in parsedOrLegacy
+      ? parsedOrLegacy
+      : parseInvoiceFull(rawText, meanConfidence);
+
+  let fields = gateLegacyFields(toLegacyDocumentFields(parsed));
+  const reasons = [...parsed.warnings];
+  let manual = reasons.length > 0;
 
   const textLen = rawText.trim().length;
   if (textLen > 0 && textLen < 80) {
     manual = true;
     reasons.push("Bardzo krótki tekst z OCR");
   }
+
+  const parseScore = parsed.parsingConfidence ?? 0;
 
   if (meanConfidence != null && meanConfidence < HARD_LOW_CONFIDENCE) {
     manual = true;
@@ -71,62 +108,62 @@ export function assessParsedInvoice(
         nip: null,
         sellerName: null,
         buyerName: null,
-        documentType: f.documentType,
+        documentType: fields.documentType,
         notes: null,
         bankAccount: null,
       },
+      parsed,
     };
+  }
+
+  if (parseScore < HARD_LOW_PARSE_SCORE && textLen > 0) {
+    manual = true;
+    reasons.push("Niski wynik parsowania strukturalnego");
   }
 
   if (meanConfidence != null && meanConfidence < SOFT_LOW_CONFIDENCE) {
     manual = true;
-    reasons.push("Średnia pewność OCR — zalecamy dokładne sprawdzenie pól");
-  }
-
-  if (f.nip) {
-    const d = f.nip.replace(/\D/g, "");
-    if (d.length !== 10) {
-      f.nip = null;
-      manual = true;
-      reasons.push("NIP nie ma poprawnej długości");
-    } else if (!isValidPolishNip(d)) {
-      f.nip = null;
-      manual = true;
-      reasons.push("NIP nie przeszedł walidacji");
+    if (!reasons.some((r) => r.includes("pewność OCR"))) {
+      reasons.push("Średnia pewność OCR — zalecamy dokładne sprawdzenie pól");
     }
   }
 
-  if (!amountsCoherent(f.amountNet, f.vatAmount, f.amountGross).ok) {
-    f.amountNet = null;
-    f.vatAmount = null;
-    f.amountGross = null;
+  if (!amountsCoherent(fields.amountNet, fields.vatAmount, fields.amountGross)) {
+    fields = {
+      ...fields,
+      amountNet: null,
+      vatAmount: null,
+      amountGross: null,
+    };
     manual = true;
     reasons.push("Kwoty netto / VAT / brutto są niespójne");
   }
 
-  if (f.invoiceNumber) {
-    const inv = f.invoiceNumber.trim();
-    if (inv.length > 48 || !/^[A-Z0-9/\-._]+$/i.test(inv)) {
-      f.invoiceNumber = null;
-      manual = true;
-      reasons.push("Podejrzany numer faktury");
-    }
+  if (fields.nip && fields.nip.length !== 10) {
+    fields.nip = null;
+    manual = true;
+    reasons.push("NIP nie ma poprawnej długości");
+  } else if (fields.nip && !isValidPolishNip(fields.nip)) {
+    fields.nip = null;
+    manual = true;
+    reasons.push("NIP nie przeszedł walidacji");
   }
 
-  if (f.bankAccount) {
-    const b = f.bankAccount.replace(/\s/g, "");
-    if (!/^PL\d{26}$/i.test(b)) {
-      f.bankAccount = null;
-      manual = true;
-      reasons.push("Numer konta nie wygląda na poprawny IBAN PL");
-    } else {
-      f.bankAccount = b.toUpperCase();
-    }
+  if (fields.bankAccount && !/^[A-Z]{2}\d{2}/.test(fields.bankAccount)) {
+    fields.bankAccount = null;
   }
 
   return {
     manualReviewRequired: manual,
-    reasons,
-    fields: f,
+    reasons: [...new Set(reasons)],
+    fields,
+    parsed,
   };
+}
+
+/** Pipeline: tekst OCR → ocena + pola legacy. */
+export function assessOcrText(rawText: string, meanConfidence: number | null): OcrQualityAssessment {
+  const repaired = repairOcrText(rawText);
+  const parsed = parseInvoiceFull(repaired, meanConfidence);
+  return assessParsedInvoice(parsed, repaired, meanConfidence);
 }

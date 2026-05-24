@@ -1,8 +1,9 @@
-import fs from "fs";
+import { statSync } from "fs";
 import path from "path";
 
 import { PrismaPg } from "@prisma/adapter-pg";
 import { PrismaClient } from "@/generated/prisma";
+import { normalizePoolerDatabaseUrl } from "@/lib/database-url";
 import { getPgPoolOptionsFromConnectionString } from "@/lib/pg-pool-options";
 import { Pool } from "pg";
 
@@ -12,30 +13,44 @@ function rawDatabaseUrl(): string {
   return process.env.DATABASE_URL?.trim() || defaultLocalUrl;
 }
 
+function resolvedDatabaseUrl(): string {
+  const raw = rawDatabaseUrl();
+  if (/localhost|127\.0\.0\.1/i.test(raw)) return raw;
+  return normalizePoolerDatabaseUrl(raw);
+}
+
 function poolConnectionConfig() {
-  return getPgPoolOptionsFromConnectionString(rawDatabaseUrl());
+  return getPgPoolOptionsFromConnectionString(resolvedDatabaseUrl());
+}
+
+/** In dev, invalidate cached PrismaClient when schema.prisma changes (after prisma generate). */
+function prismaSchemaFingerprint(): string {
+  if (process.env.NODE_ENV === "production") return "production";
+  try {
+    const schemaPath = path.join(process.cwd(), "prisma", "schema.prisma");
+    const generatedPath = path.join(process.cwd(), "generated", "prisma", "index.js");
+    const schemaMtime = statSync(schemaPath).mtimeMs;
+    let generatedMtime = 0;
+    try {
+      generatedMtime = statSync(generatedPath).mtimeMs;
+    } catch {
+      /* generated client not built yet */
+    }
+    return `${schemaMtime}:${generatedMtime}`;
+  } catch {
+    return "unknown";
+  }
 }
 
 const globalForPrisma = globalThis as unknown as {
   prisma: PrismaClient | undefined;
   pgPool: Pool | undefined;
   poolConfigKey: string | undefined;
-  prismaPoolKey: string | undefined;
-  /** Czas modyfikacji `generated/prisma/index.js` przy utworzeniu bieżącego klienta (tylko dev). */
-  prismaClientBuiltAt: number | undefined;
+  prismaSchemaFingerprint: string | undefined;
 };
 
 function poolConfigFingerprint(): string {
-  return `${rawDatabaseUrl()}|${process.env.DATABASE_SSL_STRICT ?? ""}`;
-}
-
-function generatedClientMtimeMs(): number {
-  try {
-    const marker = path.join(process.cwd(), "generated", "prisma", "index.js");
-    return fs.statSync(marker).mtimeMs;
-  } catch {
-    return 0;
-  }
+  return `${resolvedDatabaseUrl()}|${process.env.DATABASE_SSL_STRICT ?? ""}`;
 }
 
 function getPool(): Pool {
@@ -48,13 +63,13 @@ function getPool(): Pool {
     globalForPrisma.poolConfigKey = key;
     globalForPrisma.pgPool = new Pool({
       ...poolConnectionConfig(),
-      max: Number(process.env.DATABASE_POOL_MAX ?? 10),
+      max: Number(process.env.DATABASE_POOL_MAX ?? 1),
     });
   }
   return globalForPrisma.pgPool;
 }
 
-function instantiateClient(): PrismaClient {
+function createPrismaClient(): PrismaClient {
   const adapter = new PrismaPg(getPool());
   return new PrismaClient({
     adapter,
@@ -62,56 +77,21 @@ function instantiateClient(): PrismaClient {
   });
 }
 
-function getClient(): PrismaClient {
-  if (process.env.NODE_ENV !== "development") {
-    if (!globalForPrisma.prisma) {
-      globalForPrisma.prisma = instantiateClient();
-      globalForPrisma.prismaPoolKey = poolConfigFingerprint();
-    }
-    return globalForPrisma.prisma;
+function getPrismaClient(): PrismaClient {
+  const fingerprint = prismaSchemaFingerprint();
+  const cached = globalForPrisma.prisma;
+  if (cached && globalForPrisma.prismaSchemaFingerprint === fingerprint) {
+    return cached;
   }
 
-  const poolKey = poolConfigFingerprint();
-  if (globalForPrisma.prisma && globalForPrisma.prismaPoolKey !== poolKey) {
-    void globalForPrisma.prisma.$disconnect().catch(() => {});
-    globalForPrisma.prisma = undefined;
-    globalForPrisma.prismaClientBuiltAt = undefined;
+  const client = createPrismaClient();
+  if (process.env.NODE_ENV !== "production") {
+    globalForPrisma.prisma = client;
+    globalForPrisma.prismaSchemaFingerprint = fingerprint;
   }
-
-  const onDisk = generatedClientMtimeMs();
-  const stale =
-    globalForPrisma.prisma != null &&
-    globalForPrisma.prismaClientBuiltAt != null &&
-    onDisk > globalForPrisma.prismaClientBuiltAt;
-
-  if (stale) {
-    void globalForPrisma.prisma!.$disconnect().catch(() => {});
-    globalForPrisma.prisma = undefined;
-  }
-
-  if (!globalForPrisma.prisma) {
-    globalForPrisma.prisma = instantiateClient();
-    globalForPrisma.prismaClientBuiltAt = onDisk;
-    globalForPrisma.prismaPoolKey = poolKey;
-  }
-
-  return globalForPrisma.prisma;
+  return client;
 }
 
-/**
- * W dev po `npx prisma generate` plik `generated/prisma/index.js` ma nowszy mtime —
- * przy kolejnym użyciu klient zostanie odtworzony (bez ręcznego restartu serwera).
- * W produkcji singleton jak wcześniej.
- */
-export const prisma = new Proxy({} as PrismaClient, {
-  get(_target, prop) {
-    const client = getClient();
-    const value = Reflect.get(client, prop, client) as unknown;
-    if (typeof value === "function") {
-      return (value as (...a: unknown[]) => unknown).bind(client);
-    }
-    return value;
-  },
-}) as PrismaClient;
+export const prisma = getPrismaClient();
 
 export default prisma;

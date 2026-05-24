@@ -282,7 +282,7 @@ export function DashboardCharts({
                   hint="Dodaj faktury z datą wystawienia, aby zobaczyć trend w czasie."
                 />
               ) : (
-                <ResponsiveContainer width="100%" height="100%">
+                <ResponsiveContainer width="100%" height={280} minWidth={0}>
                   <LineChart data={spendLineData} margin={{ left: 0, right: 8, top: 12, bottom: 8 }}>
                     <CartesianGrid strokeDasharray="3 3" vertical={false} className="stroke-border/80" />
                     <XAxis
@@ -344,7 +344,7 @@ export function DashboardCharts({
                 {!statusHasData ? (
                   <ChartEmpty title="Brak dokumentów" hint="Po dodaniu faktur zobaczysz rozkład statusów." />
                 ) : (
-                  <ResponsiveContainer width="100%" height="100%">
+                  <ResponsiveContainer width="100%" height={240} minWidth={0}>
                     <PieChart>
                       <Pie
                         data={safeStatusData}
@@ -398,7 +398,7 @@ export function DashboardCharts({
                 {safeContractorSpend.length === 0 ? (
                   <ChartEmpty title="Brak danych" hint="Przypisz kontrahentów do faktur, aby zobaczyć ranking." />
                 ) : (
-                  <ResponsiveContainer width="100%" height="100%">
+                  <ResponsiveContainer width="100%" height={240} minWidth={0}>
                     <BarChart
                       data={safeContractorSpend}
                       layout="vertical"
@@ -461,7 +461,7 @@ export function DashboardCharts({
               {ocrChartData.length === 0 ? (
                 <ChartEmpty title="Brak danych OCR" hint="Uruchom OCR na dokumentach, aby zobaczyć trend przetwarzania." />
               ) : (
-                <ResponsiveContainer width="100%" height="100%">
+                <ResponsiveContainer width="100%" height={280} minWidth={0}>
                   <BarChart data={ocrChartData} margin={{ left: 0, right: 8, top: 8, bottom: 8 }}>
                     <CartesianGrid strokeDasharray="3 3" vertical={false} className="stroke-border/80" />
                     <XAxis
@@ -556,7 +556,7 @@ export function DashboardCharts({
                       height: Math.min(520, Math.max(260, projectRowsSorted.length * 36 + 100)),
                     }}
                   >
-                    <ResponsiveContainer width="100%" height="100%">
+                    <ResponsiveContainer width="100%" height={240} minWidth={0}>
                       <BarChart
                         layout="vertical"
                         data={projectRowsSorted}

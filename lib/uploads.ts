@@ -1,8 +1,14 @@
-import fs from "fs/promises";
 import path from "path";
-import { randomUUID } from "crypto";
 
 import { ALLOWED_EXTENSIONS, ALLOWED_MIME_TYPES, MAX_UPLOAD_BYTES } from "@/lib/constants";
+import {
+  readStoredFile,
+  storeUploadedFile,
+  storedFileAbsolutePath,
+  fileStorageBackend,
+} from "@/lib/file-storage";
+
+export { fileStorageBackend, readStoredFile, storedFileAbsolutePath };
 
 /** Sprawdzenie sygnatury pliku (ochrona przed uszkodzonymi / fałszywymi typami). */
 export function validateFileSignature(buffer: Buffer, mimeType: string): { ok: true } | { ok: false; error: string } {
@@ -70,23 +76,15 @@ export function validateUpload(
   return { ok: true };
 }
 
+/** @deprecated Użyj `storeUploadedFile` z `@/lib/file-storage`. */
 export async function saveUploadedFile(
   buffer: Buffer,
   originalName: string,
   mimeType: string,
 ): Promise<{ storedName: string; displayName: string; mimeType: string }> {
-  const ext =
-    path.extname(originalName).slice(1).toLowerCase() ||
-    (mimeType === "image/png" ? "png" : mimeType === "image/jpeg" ? "jpg" : "pdf");
-
-  const storedName = `${randomUUID()}.${ext}`;
-  const dir = path.join(process.cwd(), "uploads");
-  await fs.mkdir(dir, { recursive: true });
-  await fs.writeFile(path.join(dir, storedName), buffer);
-
-  return { storedName, displayName: originalName, mimeType };
+  return storeUploadedFile(buffer, originalName, mimeType);
 }
 
 export function uploadsPath(storedName: string): string {
-  return path.join(process.cwd(), "uploads", storedName);
+  return storedFileAbsolutePath(storedName);
 }

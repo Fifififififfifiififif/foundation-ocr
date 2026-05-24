@@ -11,12 +11,21 @@ import {
 } from "@/components/invoices/invoices-page-client";
 import prisma from "@/lib/prisma";
 import { documentStatusPl } from "@/lib/ui-i18n";
+import { DbSetupRequired } from "@/components/layout/db-setup-required";
 import { getAppContext } from "@/lib/app-context";
-import type { DocumentStatus } from "@/generated/prisma";
+import type { DocumentStatus, Prisma } from "@/generated/prisma";
 import { buildDocumentWhere, documentOrderBy } from "@/lib/queries/document-list";
 import { UNASSIGNED_LABEL } from "@/lib/optional-relation-ids";
+import { isPrismaMissingSchemaObject } from "@/lib/prisma-recoverable";
 
 const PAGE_SIZE = 20;
+
+const documentListInclude = {
+  project: { select: { name: true, grantNumber: true, fundingSource: true } },
+  contractor: { select: { name: true } },
+} as const;
+
+type DocumentListRow = Prisma.DocumentGetPayload<{ include: typeof documentListInclude }>;
 
 export default async function DocumentsPage({
   searchParams,
@@ -67,30 +76,40 @@ export default async function DocumentsPage({
     ? { organizationId: orgId, archived: false, createdByUserId: user.id }
     : { organizationId: orgId };
 
-  const [totalCount, globalCount, documents, projects, contractors] = await Promise.all([
-    prisma.document.count({ where }),
-    prisma.document.count({ where: globalWhere }),
-    prisma.document.findMany({
-      where,
-      orderBy: documentOrderBy(sort),
-      skip: (page - 1) * PAGE_SIZE,
-      take: PAGE_SIZE,
-      include: {
-        project: { select: { name: true, grantNumber: true, fundingSource: true } },
-        contractor: { select: { name: true } },
-      },
-    }),
-    prisma.project.findMany({
-      where: { organizationId: orgId },
-      select: { id: true, name: true },
-      orderBy: { name: "asc" },
-    }),
-    prisma.contractor.findMany({
-      where: { organizationId: orgId },
-      select: { id: true, name: true },
-      orderBy: { name: "asc" },
-    }),
-  ]);
+  let totalCount = 0;
+  let globalCount = 0;
+  let documents: DocumentListRow[] = [];
+  let projects: { id: string; name: string }[] = [];
+  let contractors: { id: string; name: string }[] = [];
+
+  try {
+    [totalCount, globalCount, documents, projects, contractors] = await Promise.all([
+      prisma.document.count({ where }),
+      prisma.document.count({ where: globalWhere }),
+      prisma.document.findMany({
+        where,
+        orderBy: documentOrderBy(sort),
+        skip: (page - 1) * PAGE_SIZE,
+        take: PAGE_SIZE,
+        include: documentListInclude,
+      }),
+      prisma.project.findMany({
+        where: { organizationId: orgId },
+        select: { id: true, name: true },
+        orderBy: { name: "asc" },
+      }),
+      prisma.contractor.findMany({
+        where: { organizationId: orgId },
+        select: { id: true, name: true },
+        orderBy: { name: "asc" },
+      }),
+    ]);
+  } catch (e) {
+    if (isPrismaMissingSchemaObject(e)) {
+      return <DbSetupRequired title="Faktury" />;
+    }
+    throw e;
+  }
 
   const exportParams = new URLSearchParams();
   if (projectId) exportParams.set("projectId", projectId);
@@ -145,7 +164,10 @@ export default async function DocumentsPage({
             <a href={exportHref}>Eksport CSV (widok)</a>
           </Button>
           <Button size="sm" asChild>
-            <Link href="/documents/new">Dodaj fakturę</Link>
+            <Link href="/documents/new">Prześlij (OCR)</Link>
+          </Button>
+          <Button size="sm" variant="outline" asChild>
+            <Link href="/documents/manual/new">Utwórz ręcznie</Link>
           </Button>
         </div>
       </div>

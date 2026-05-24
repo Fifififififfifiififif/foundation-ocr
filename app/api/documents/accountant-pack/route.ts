@@ -1,9 +1,9 @@
 import { NextResponse } from "next/server";
 
 import prisma from "@/lib/prisma";
-import { getAppContext } from "@/lib/app-context";
+import { getApiAppContext } from "@/lib/api-app-context";
+import { recordUsageMetric } from "@/src/modules/subscription/enforce";
 import { documentStatusPl } from "@/lib/ui-i18n";
-import { roleHasPermission } from "@/lib/permissions";
 
 function csvEscape(s: string | null | undefined): string {
   if (s == null) return "";
@@ -13,10 +13,14 @@ function csvEscape(s: string | null | undefined): string {
 }
 
 export async function POST(req: Request) {
-  const { organizationId: orgId, user } = await getAppContext();
-  if (!roleHasPermission(user.role, "documents.export")) {
-    return NextResponse.json({ error: "Brak uprawnień." }, { status: 403 });
-  }
+  const resolved = await getApiAppContext({
+    permission: "documents.export",
+    module: "ACCOUNTING",
+    feature: "accountant_pack",
+    quota: "exports",
+  });
+  if (!resolved.ok) return resolved.response;
+  const { organizationId: orgId, user } = resolved.ctx;
 
   let body: unknown;
   try {
@@ -83,7 +87,7 @@ export async function POST(req: Request) {
       id: d.id,
       fileName: d.fileName,
       filePath: d.filePath,
-      downloadUrl: `/api/files/${encodeURIComponent(d.filePath)}`,
+      downloadUrl: d.filePath ? `/api/files/${encodeURIComponent(d.filePath)}` : null,
       invoiceNumber: d.invoiceNumber,
       contractor: d.contractor?.name ?? "—",
       nip: d.contractor?.nip ?? d.ocrContractorNip,
@@ -92,9 +96,14 @@ export async function POST(req: Request) {
     })),
   };
 
+  const documentsWithFiles = metadata.documents.filter(
+    (d): d is typeof d & { downloadUrl: string; fileName: string } =>
+      Boolean(d.downloadUrl && d.fileName),
+  );
+
   return NextResponse.json({
     csv,
     metadata,
-    documents: metadata.documents,
+    documents: documentsWithFiles,
   });
 }

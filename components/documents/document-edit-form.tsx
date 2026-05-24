@@ -168,7 +168,7 @@ export function DocumentEditForm(props: {
           ) : null}
         </div>
         <div className="space-y-1.5">
-          <Label htmlFor="ocrContractorNip">NIP na dokumencie</Label>
+          <Label htmlFor="ocrContractorNip">NIP sprzedawcy (na dokumencie)</Label>
           <Input
             id="ocrContractorNip"
             name="ocrContractorNip"
@@ -186,11 +186,11 @@ export function DocumentEditForm(props: {
           )}
         </div>
         <div className="space-y-1.5">
-          <Label htmlFor="ocrBankAccount">Rachunek bankowy (IBAN)</Label>
+          <Label htmlFor="ocrBankAccount">Rachunek bankowy (IBAN, opcjonalnie)</Label>
           <Input
             id="ocrBankAccount"
             name="ocrBankAccount"
-            placeholder="PL…"
+            placeholder="Opcjonalnie — pełny numer PL…"
             key={`ocrBankAccount-${val("ocrBankAccount")}`}
             defaultValue={val("ocrBankAccount")}
             className={cn(fieldErr("ocrBankAccount") && "border-destructive")}

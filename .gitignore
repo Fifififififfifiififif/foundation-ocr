@@ -41,5 +41,11 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 
+# tooling noise
+eslint-report.json
+eslint-out.json
+tailwindcss-*.log
+.tmp-*
+
 /generated/prisma
 /uploads

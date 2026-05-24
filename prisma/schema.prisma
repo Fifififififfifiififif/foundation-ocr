@@ -1,3 +1,5 @@
+// docflow-saas — PostgreSQL (Supabase) multi-tenant document & invoice platform
+
 generator client {
   provider = "prisma-client-js"
   output   = "../generated/prisma"
@@ -7,123 +9,178 @@ datasource db {
   provider = "postgresql"
 }
 
+// ─── Enums ───────────────────────────────────────────────────────────────────
+
 enum OrganizationRole {
+  OWNER
   ADMIN
   ACCOUNTANT
   MANAGER
-  USER
+  MEMBER
+  VIEWER
+  USER // legacy alias — treat as MEMBER in permissions
 }
 
-model User {
-  id            String           @id
-  name          String
-  email         String
-  emailVerified Boolean
-  image         String?
-  createdAt     DateTime         @default(now())
-  updatedAt     DateTime         @updatedAt
-  /// Rola w obrębie organizacji (RBAC).
-  role          OrganizationRole @default(USER)
-  banned        Boolean          @default(false)
-  banReason     String?
-  banExpires    DateTime?
-
-  organizationId String?
-  organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: Restrict)
-
-  accounts Account[]
-  sessions Session[]
-
-  documentsCreated    Document[]        @relation("DocumentCreatedBy")
-  documentHistory     DocumentHistory[]
-  inAppNotifications  InAppNotification[]
-
-  @@unique([email])
-  @@index([organizationId])
-  @@map("user")
+enum OrganizationStatus {
+  active
+  suspended
 }
 
-/// Sesje Better Auth
-model Session {
-  id        String   @id @default(cuid())
-  userId    String
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  token     String   @unique
-  expiresAt DateTime
-  ipAddress String?
-  userAgent String?  @db.Text
+enum InviteStatus {
+  pending
+  accepted
+  expired
+  revoked
+}
+
+enum DocumentStatus {
+  draft
+  review
+  approved
+}
+
+enum DocumentSource {
+  ocr
+  manual
+  hybrid
+  ksef
+}
+
+enum InvoiceClassification {
+  INCOME
+  EXPENSE
+}
+
+enum KsefEnvironment {
+  test
+  prod
+}
+
+enum KsefIntegrationStatus {
+  disconnected
+  connected
+  error
+}
+
+enum KsefDocumentStatus {
+  imported
+  pending
+  accepted
+  rejected
+  upo_available
+}
+
+enum ModuleKey {
+  AUTH
+  OCR
+  INVOICES
+  DOCUMENTS
+  ANALYTICS
+  USERS
+  PERMISSIONS
+  SETTINGS
+  BILLING
+  AUDIT
+  UPLOAD
+  REPORTS
+  PROJECTS
+  CALENDAR
+  EXPORTS
+  ACCOUNTING
+  APPROVALS
+}
+
+enum SubscriptionStatus {
+  trialing
+  active
+  past_due
+  canceled
+  expired
+  suspended
+}
+
+enum SystemRoleKey {
+  SUPER_ADMIN
+  ORG_ADMIN
+  MANAGER
+  MEMBER
+  VIEWER
+}
+
+// ─── Platform modules & permissions ──────────────────────────────────────────
+
+model Module {
+  id          String    @id @default(cuid())
+  key         ModuleKey @unique
+  name        String
+  description String?
+  isCore      Boolean   @default(false)
+  sortOrder   Int       @default(0)
+
+  organizationModules OrganizationModule[]
+  permissions         Permission[]
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  @@index([userId])
-  @@map("session")
+  @@map("module")
 }
 
-/// Konta OAuth / hasło (credential) — Better Auth
-model Account {
-  id                    String    @id @default(cuid())
-  userId                String
-  user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  accountId             String
-  providerId            String
-  accessToken           String?   @db.Text
-  refreshToken          String?   @db.Text
-  accessTokenExpiresAt  DateTime?
-  refreshTokenExpiresAt DateTime?
-  scope                 String?
-  idToken               String?   @db.Text
-  password              String?
-  createdAt             DateTime  @default(now())
-  updatedAt             DateTime  @updatedAt
+model Permission {
+  id          String     @id @default(cuid())
+  key         String     @unique
+  name        String
+  description String?
+  moduleKey   ModuleKey?
 
-  @@unique([providerId, accountId])
-  @@index([userId])
-  @@map("account")
+  module          Module?          @relation(fields: [moduleKey], references: [key])
+  rolePermissions RolePermission[]
+
+  createdAt DateTime @default(now())
+
+  @@index([moduleKey])
+  @@map("permission")
 }
 
-/// Tokeny weryfikacji e-mail / resetu hasła — Better Auth
-model Verification {
-  id         String   @id @default(cuid())
-  identifier String
-  value      String   @db.Text
-  expiresAt  DateTime
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
+model Role {
+  id          String        @id @default(cuid())
+  key         SystemRoleKey @unique
+  name        String
+  description String?
+  isSystem    Boolean       @default(true)
 
-  @@index([identifier])
-  @@map("verification")
+  rolePermissions RolePermission[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("role")
 }
 
-model InAppNotification {
-  id             String   @id @default(cuid())
-  userId         String
-  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  organizationId String
-  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  type           String   @default("document")
-  title          String
-  body           String?
-  href           String?
-  dedupeKey      String?
-  readAt         DateTime?
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+model RolePermission {
+  roleId       String
+  permissionId String
 
-  @@unique([userId, dedupeKey])
-  @@index([userId, readAt])
-  @@index([organizationId])
-  @@map("in_app_notification")
+  role       Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@id([roleId, permissionId])
+  @@map("role_permission")
 }
 
-// ── Multi-tenant organization (settings + branding) ──
+// ─── Tenant ──────────────────────────────────────────────────────────────────
 
 model Organization {
   id   String @id @default(cuid())
+  slug String @unique
   name String @default("Moja organizacja")
 
-  tagline  String?
-  logoPath String?
-  /// Kolor akcentu UI (#RRGGBB lub zapis gradientu jak wcześniej)
+  status OrganizationStatus @default(active)
+  suspendedAt DateTime?
+  suspendedReason String?
+
+  tagline     String?
+  logoPath    String?
   accentColor String  @default("#18181b")
   fontColor   String?
 
@@ -134,6 +191,10 @@ model Organization {
   nip              String?
   regon            String?
   krs              String?
+  legalForm        String?
+  registryStatus   String?
+  verifiedAt       DateTime?
+  registryRawData  Json?
 
   appLanguage String @default("pl")
   timezone    String @default("Europe/Warsaw")
@@ -150,125 +211,527 @@ model Organization {
   ocrEnabled     Boolean @default(true)
   maxUploadBytes Int     @default(10485760)
 
-  appearanceTheme String @default("system")
-  sidebarStyle    String @default("default")
-  uiDensity       String @default("comfortable")
-  dashboardPreferences Json @default("{}")
+  appearanceTheme      String @default("system")
+  sidebarStyle         String @default("default")
+  uiDensity            String @default("comfortable")
+  dashboardPreferences Json   @default("{}")
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  users               User[]
-  projects            Project[]
-  contractors         Contractor[]
-  documents           Document[]
-  documentHistories   DocumentHistory[]
-  notifications       InAppNotification[]
+  members           OrganizationMember[]
+  inviteTokens      InviteToken[]
+  userModulePerms   UserModulePermission[]
+  users             User[]
+  modules           OrganizationModule[]
+  subscription      Subscription?
+  usageRecords      Usage[]
+  auditLogs         AuditLog[]
+  projects          Project[]
+  contractors       Contractor[]
+  documents         Document[]
+  uploads           Upload[]
+  documentHistories DocumentHistory[]
+  notifications     InAppNotification[]
+  financialSettings OrganizationFinancialSettings?
+  bankAccounts      BankAccount[]
+  ksefIntegration   KsefIntegration?
+  financialSummaryCache FinancialSummaryCache?
 
+  @@index([slug])
   @@map("organization")
 }
 
-// ── Domain (tenant-scoped) ──
+model OrganizationMember {
+  id             String           @id @default(cuid())
+  organizationId String
+  organization   Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  userId         String
+  user           User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role           OrganizationRole @default(MEMBER)
+  isActive       Boolean          @default(true)
 
-model Project {
-  id              String   @id @default(cuid())
-  organizationId  String
-  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  name            String
-  grantNumber     String
-  fundingSource   String
-  budget          Decimal? @db.Decimal(14, 2)
-  description     String?
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
-  documents       Document[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([organizationId, userId])
+  @@index([userId])
+  @@index([organizationId, role])
+  @@index([organizationId, isActive])
+  @@map("organization_member")
+}
+
+model InviteToken {
+  id             String           @id @default(cuid())
+  organizationId String
+  organization   Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  email          String
+  role           OrganizationRole @default(MEMBER)
+  tokenHash      String           @unique
+  status         InviteStatus     @default(pending)
+  expiresAt      DateTime
+  acceptedAt     DateTime?
+  invitedById    String
+  invitedBy      User             @relation("InvitesSent", fields: [invitedById], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([organizationId, status])
+  @@index([email, status])
+  @@map("invite_token")
+}
+
+model UserModulePermission {
+  id             String           @id @default(cuid())
+  organizationId String
+  organization   Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  userId         String
+  user           User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  moduleKey      ModuleKey
+  granted        Boolean          @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([organizationId, userId, moduleKey])
+  @@index([userId, organizationId])
+  @@map("user_module_permission")
+}
+
+model OrganizationModule {
+  id             String       @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  moduleId       String
+  module         Module       @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+  enabled        Boolean      @default(true)
+
+  enabledAt DateTime  @default(now())
+  disabledAt DateTime?
+
+  @@unique([organizationId, moduleId])
+  @@index([organizationId, enabled])
+  @@map("organization_module")
+}
+
+model Subscription {
+  id             String             @id @default(cuid())
+  organizationId String             @unique
+  organization   Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  plan           String             @default("free")
+  status         SubscriptionStatus @default(trialing)
+  seats          Int                @default(5)
+  ocrQuotaMonthly Int               @default(500)
+  storageBytes   BigInt             @default(10737418240)
+  currentPeriodStart DateTime       @default(now())
+  currentPeriodEnd   DateTime?
+  trialEndsAt        DateTime?
+  billingCycle       String             @default("monthly")
+  canceledAt         DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status, currentPeriodEnd])
+  @@map("subscription")
+}
+
+model Usage {
+  id             String       @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  moduleKey      ModuleKey
+  metric         String
+  quantity       Int          @default(0)
+  periodStart    DateTime
+  periodEnd      DateTime
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([organizationId, moduleKey, metric, periodStart])
+  @@index([organizationId, periodStart])
+  @@map("usage")
+}
+
+model AuditLog {
+  id             String        @id @default(cuid())
+  organizationId String?
+  organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: SetNull)
+  userId         String?
+  user           User?         @relation(fields: [userId], references: [id], onDelete: SetNull)
+  action         String
+  entityType     String?
+  entityId       String?
+  metadata       Json?
+  ipAddress      String?
+
+  createdAt DateTime @default(now())
+
+  @@index([organizationId, createdAt])
+  @@index([userId, createdAt])
+  @@map("audit_log")
+}
+
+// ─── Users ───────────────────────────────────────────────────────────────────
+
+model User {
+  id    String @id
+  name  String
+  email String @unique
+  image String?
+
+  supabaseUserId String? @unique
+  isSuperAdmin   Boolean @default(false)
+  banned         Boolean @default(false)
+
+  /// Aktywna organizacja (kontekst sesji)
+  organizationId String?
+  organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: SetNull)
+
+  /// Legacy — rola w aktywnej organizacji (synchronizowana z OrganizationMember)
+  role OrganizationRole @default(MEMBER)
+
+  memberships        OrganizationMember[]
+  invitesSent        InviteToken[]       @relation("InvitesSent")
+  modulePermissions  UserModulePermission[]
+  documentsCreated   Document[]          @relation("DocumentCreatedBy")
+  documentHistory    DocumentHistory[]
+  inAppNotifications InAppNotification[]
+  auditLogs          AuditLog[]
+  uploads            Upload[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([organizationId])
+  @@index([organizationId, role])
+  @@map("user")
+}
+
+// ─── Domain ──────────────────────────────────────────────────────────────────
+
+model Project {
+  id             String       @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  name          String
+  grantNumber   String
+  fundingSource String
+  budget        Decimal? @db.Decimal(14, 2)
+  description   String?
+
+  documents Document[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([organizationId])
+  @@index([organizationId, name])
   @@map("project")
 }
 
 model Contractor {
-  id             String   @id @default(cuid())
+  id             String       @id @default(cuid())
   organizationId String
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  name           String
-  nip            String?
-  email          String?
-  phone          String?
-  address        String?
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
-  documents      Document[]
+
+  name    String
+  nip     String?
+  email   String?
+  phone   String?
+  address String?
+
+  documents Document[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([organizationId])
+  @@index([organizationId, nip])
+  @@index([organizationId, name])
   @@map("contractor")
 }
 
-enum DocumentStatus {
-  draft
-  review
-  approved
+model Upload {
+  id             String       @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  uploadedById   String?
+  uploadedBy     User?        @relation(fields: [uploadedById], references: [id], onDelete: SetNull)
+
+  filePath String
+  fileName String
+  mimeType String
+  sizeBytes Int     @default(0)
+
+  document Document?
+
+  createdAt DateTime @default(now())
+
+  @@index([organizationId, createdAt])
+  @@map("upload")
 }
 
+/// Faktura / dokument — OCR opcjonalny, ręczne tworzenie wspierane.
 model Document {
-  id               String       @id @default(cuid())
-  organizationId   String
-  organization     Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  invoiceNumber      String?
-  issueDate          DateTime?
-  paymentDate        DateTime?
-  amountNet          Decimal?       @db.Decimal(14, 2)
-  amountVat          Decimal?       @db.Decimal(14, 2)
-  amountGross        Decimal?       @db.Decimal(14, 2)
-  documentType       String?
-  ocrVendorName      String?
-  ocrContractorNip   String?
-  ocrBankAccount     String?
-  ocrMeanConfidence  Int?
+  id             String       @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  source DocumentSource @default(ocr)
+
+  classification InvoiceClassification @default(EXPENSE)
+  isCommitment   Boolean               @default(false)
+
+  ksefReference  String?
+  ksefStatus     KsefDocumentStatus?
+  ksefRawXml     String?               @db.Text
+  ksefUpoReference String?
+
+  invoiceNumber   String?
+  issueDate       DateTime?
+  paymentDate     DateTime?
+  dueDate         DateTime?
+  amountNet       Decimal? @db.Decimal(14, 2)
+  amountVat       Decimal? @db.Decimal(14, 2)
+  amountGross     Decimal? @db.Decimal(14, 2)
+  currency        String?  @default("PLN")
+  documentType    String?
+  expenseCategory String?
+  notes           String?
+
+  sellerName    String?
+  sellerNip     String?
+  sellerAddress String? @db.Text
+  sellerEmail   String?
+  sellerPhone   String?
+  buyerName     String?
+  buyerNip      String?
+  buyerAddress  String? @db.Text
+  paymentMethod String?
+  bankAccount   String?
+  iban          String?
+
+  status   DocumentStatus @default(draft)
+  archived Boolean        @default(false)
+
+  filePath String?
+  fileName String?
+  mimeType String?
+
+  uploadId String? @unique
+  upload   Upload? @relation(fields: [uploadId], references: [id], onDelete: SetNull)
+
+  ocrRawText                 String? @db.Text
+  ocrVendorName              String?
+  ocrContractorNip           String?
+  ocrBankAccount             String?
+  ocrBuyerName               String?
+  ocrBuyerNip                String?
+  ocrSellerAddress           String? @db.Text
+  ocrSellerEmail             String?
+  ocrSellerPhone             String?
+  ocrSwift                   String?
+  ocrCurrency                String?
+  ocrSaleDate                DateTime?
+  ocrDueDate                 DateTime?
+  ocrPaymentMethod           String?
+  ocrLanguage                String?
+  ocrMeanConfidence          Int?
+  ocrParsingConfidence       Int?
   ocrManualReviewRecommended Boolean @default(false)
-  ocrQualityReasons  Json?
-  notes              String?
-  expenseCategory    String?
-  status             DocumentStatus @default(draft)
-  archived           Boolean        @default(false)
-  filePath           String
-  fileName           String
-  mimeType           String
-  ocrRawText         String?
-  createdAt          DateTime       @default(now())
-  updatedAt          DateTime       @updatedAt
+  ocrQualityReasons          Json?
+  ocrParsedJson              Json?
 
-  projectId String?
-  project   Project? @relation(fields: [projectId], references: [id], onDelete: Restrict)
-
+  projectId    String?
+  project      Project?    @relation(fields: [projectId], references: [id], onDelete: Restrict)
   contractorId String?
   contractor   Contractor? @relation(fields: [contractorId], references: [id], onDelete: Restrict)
 
   createdByUserId String?
   createdBy       User?   @relation("DocumentCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
 
-  history DocumentHistory[]
+  lineItems DocumentLineItem[]
+  ocrResult OCRResult?
+  history   DocumentHistory[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([organizationId])
   @@index([organizationId, archived])
   @@index([organizationId, status])
+  @@index([organizationId, source])
+  @@index([organizationId, createdAt])
+  @@index([organizationId, updatedAt])
+  @@index([organizationId, issueDate])
+  @@index([organizationId, classification])
+  @@index([organizationId, ksefReference])
+  @@unique([organizationId, ksefReference])
+  @@index([projectId])
+  @@index([contractorId])
+  @@index([createdByUserId])
   @@map("document")
 }
 
+model OrganizationFinancialSettings {
+  id             String       @id @default(cuid())
+  organizationId String       @unique
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  reservedCommitments Decimal @default(0) @db.Decimal(14, 2)
+  notes               String? @db.Text
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("organization_financial_settings")
+}
+
+model BankAccount {
+  id             String       @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  name            String
+  iban            String?
+  accountNumber   String?
+  openingBalance  Decimal  @default(0) @db.Decimal(14, 2)
+  currentBalance  Decimal  @default(0) @db.Decimal(14, 2)
+  currency        String   @default("PLN")
+  isPrimary       Boolean  @default(false)
+  sortOrder       Int      @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([organizationId, isPrimary])
+  @@map("bank_account")
+}
+
+model KsefIntegration {
+  id             String       @id @default(cuid())
+  organizationId String       @unique
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  environment KsefEnvironment        @default(test)
+  status      KsefIntegrationStatus  @default(disconnected)
+  nip         String?
+
+  tokenEncrypted       String? @db.Text
+  certificateEncrypted String? @db.Text
+  authMetadata         Json?
+
+  lastSyncAt      DateTime?
+  lastSyncMessage String?
+  lastError       String? @db.Text
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("ksef_integration")
+}
+
+model FinancialSummaryCache {
+  id             String       @id @default(cuid())
+  organizationId String       @unique
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  incomeTotal    Decimal @default(0) @db.Decimal(14, 2)
+  expenseTotal   Decimal @default(0) @db.Decimal(14, 2)
+  profitTotal    Decimal @default(0) @db.Decimal(14, 2)
+  accountBalance Decimal @default(0) @db.Decimal(14, 2)
+  commitments    Decimal @default(0) @db.Decimal(14, 2)
+  availableFunds Decimal @default(0) @db.Decimal(14, 2)
+
+  computedAt DateTime @default(now())
+
+  @@map("financial_summary_cache")
+}
+
+model DocumentLineItem {
+  id         String   @id @default(cuid())
+  documentId String
+  document   Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  description String
+  quantity    Decimal  @default(1) @db.Decimal(14, 4)
+  unit        String?
+  unitPrice   Decimal? @db.Decimal(14, 2)
+  vatRate     Decimal? @db.Decimal(5, 2)
+  netAmount   Decimal? @db.Decimal(14, 2)
+  vatAmount   Decimal? @db.Decimal(14, 2)
+  grossAmount Decimal? @db.Decimal(14, 2)
+  sortOrder   Int      @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([documentId, sortOrder])
+  @@map("document_line_item")
+}
+
+model OCRResult {
+  id         String   @id @default(cuid())
+  documentId String   @unique
+  document   Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  rawText           String? @db.Text
+  parsedJson        Json?
+  meanConfidence    Int?
+  parsingConfidence Int?
+  language          String?
+  engine            String? @default("tesseract")
+  processedAt       DateTime @default(now())
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("ocr_result")
+}
+
 model DocumentHistory {
-  id             String   @id @default(cuid())
+  id             String       @id @default(cuid())
   organizationId String
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   documentId     String
-  document       Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  document       Document     @relation(fields: [documentId], references: [id], onDelete: Cascade)
   userId         String
-  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  fieldName      String
-  oldValue       String?
-  newValue       String?
-  createdAt      DateTime @default(now())
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  fieldName String
+  oldValue  String?
+  newValue  String?
+
+  createdAt DateTime @default(now())
 
   @@index([organizationId])
-  @@index([documentId])
+  @@index([documentId, createdAt])
   @@map("document_history")
+}
+
+model InAppNotification {
+  id             String       @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  userId         String
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  type      String  @default("document")
+  title     String
+  body      String?
+  href      String?
+  dedupeKey String?
+  readAt    DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, dedupeKey])
+  @@index([userId, readAt])
+  @@index([organizationId])
+  @@map("in_app_notification")
 }

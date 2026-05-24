@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { startOfDay } from "date-fns";
 
 import prisma from "@/lib/prisma";
-import { getCurrentOrganizationId } from "@/lib/app-context";
+import { getApiAppContext } from "@/lib/api-app-context";
 import type { DocumentStatus, Prisma } from "@/generated/prisma";
 import { UNASSIGNED_LABEL } from "@/lib/optional-relation-ids";
 
@@ -13,7 +13,9 @@ function parseDate(s: string | null): Date | null {
 }
 
 export async function GET(req: NextRequest) {
-  const orgId = await getCurrentOrganizationId();
+  const resolved = await getApiAppContext({ permission: "calendar.read", module: "CALENDAR" });
+  if (!resolved.ok) return resolved.response;
+  const orgId = resolved.ctx.organizationId;
 
   const sp = req.nextUrl.searchParams;
   const from = parseDate(sp.get("from"));

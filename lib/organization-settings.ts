@@ -8,7 +8,11 @@ function fallbackOrganization(): Organization {
   const now = new Date();
   return {
     id: "fallback",
+    slug: "fallback",
     name: "Moja organizacja",
+    status: "active",
+    suspendedAt: null,
+    suspendedReason: null,
     tagline: null,
     logoPath: null,
     accentColor: "#18181b",
@@ -20,6 +24,10 @@ function fallbackOrganization(): Organization {
     nip: null,
     regon: null,
     krs: null,
+    legalForm: null,
+    registryStatus: null,
+    verifiedAt: null,
+    registryRawData: null,
     appLanguage: "pl",
     timezone: "Europe/Warsaw",
     dateFormat: "dd.MM.yyyy",

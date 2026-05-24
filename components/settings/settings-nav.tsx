@@ -6,21 +6,26 @@ import {
   Bell,
   Building2,
   Globe,
+  Landmark,
   Palette,
   Plug,
   ScanLine,
   Shield,
   User,
+  CreditCard,
 } from "lucide-react";
 
 import { breadcrumbSegmentPl } from "@/lib/i18n/navigation";
 import { cn } from "@/lib/utils";
 
 const items = [
+  { href: "/ustawienia/konto", label: breadcrumbSegmentPl.konto, icon: User },
+  { href: "/ustawienia/subskrypcja", label: "Subskrypcja", icon: CreditCard },
+  { href: "/ustawienia/moduly", label: breadcrumbSegmentPl.moduly, icon: Plug },
   { href: "/ustawienia/ogolne", label: breadcrumbSegmentPl.ogolne, icon: Globe },
   { href: "/ustawienia/wyglad", label: breadcrumbSegmentPl.wyglad, icon: Palette },
-  { href: "/ustawienia/fundacja", label: breadcrumbSegmentPl.fundacja, icon: Building2 },
-  { href: "/ustawienia/konto", label: breadcrumbSegmentPl.konto, icon: User },
+  { href: "/ustawienia/organizacja", label: breadcrumbSegmentPl.organizacja, icon: Building2 },
+  { href: "/ustawienia/finanse", label: "Finanse", icon: Landmark },
   { href: "/ustawienia/powiadomienia", label: breadcrumbSegmentPl.powiadomienia, icon: Bell },
   { href: "/ustawienia/bezpieczenstwo", label: breadcrumbSegmentPl.bezpieczenstwo, icon: Shield },
   { href: "/ustawienia/integracje", label: breadcrumbSegmentPl.integracje, icon: Plug },

@@ -44,8 +44,7 @@ export function SecuritySettingsForm({ initial }: { initial: Initial }) {
           className="max-w-xs"
         />
         <p className="text-muted-foreground text-sm">
-          Po tym czasie bez żadnego żądania do serwera (nawigacja, zapis, API) sesja zostanie zakończona i użytkownik
-          trafi na stronę logowania.
+          Ustawienie organizacji na przyszłość (obecnie aplikacja działa w trybie bez logowania).
         </p>
       </div>
 

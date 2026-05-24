@@ -1,12 +1,14 @@
 import { InvoiceCalendar } from "@/components/calendar/invoice-calendar";
 import { PageHeader } from "@/components/layout/page-header";
-import { getAppContext } from "@/lib/app-context";
+import { requireEntitlementModule } from "@/lib/require-entitlement";
+import { requirePermission } from "@/lib/require-permission";
 import prisma from "@/lib/prisma";
 
 export const dynamic = "force-dynamic";
 
 export default async function KalendarzPage() {
-  const { organizationId: orgId } = await getAppContext();
+  await requireEntitlementModule("CALENDAR");
+  const { organizationId: orgId } = await requirePermission("calendar.read");
 
   const [projects, contractors] = await Promise.all([
     prisma.project.findMany({

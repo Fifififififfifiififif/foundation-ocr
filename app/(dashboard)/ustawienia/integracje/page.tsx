@@ -1,5 +1,6 @@
 import { CheckCircle2, XCircle } from "lucide-react";
 
+import { KsefIntegrationForm } from "@/components/settings/ksef-integration-form";
 import { PageHeader } from "@/components/layout/page-header";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -9,7 +10,11 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { getAppContext } from "@/lib/app-context";
+import { getOrganizationById } from "@/lib/organization-settings";
 import prisma from "@/lib/prisma";
+import { describeOcrEngineConfig } from "@/lib/ocr/config";
+import { hasPermissionInOrg } from "@/src/modules/permissions/check";
 
 function envPresent(key: string) {
   const v = process.env[key];
@@ -26,11 +31,35 @@ function summarizeDbUrl(url: string) {
 }
 
 export default async function IntegracjeSettingsPage() {
+  const ocr = describeOcrEngineConfig();
   const dbUrl = process.env.DATABASE_URL?.trim() ?? "";
+  const ctx = await getAppContext();
+  const org = await getOrganizationById(ctx.organizationId);
+  const canKsef =
+    ctx.enabledModules.has("ACCOUNTING") &&
+    (ctx.user.isSuperAdmin ||
+      (await hasPermissionInOrg(ctx.organizationId, ctx.user.role, "integrations.manage", false, ctx.user.id)));
+
+  let ksefInitial = null;
+  if (canKsef) {
+    const row = await prisma.ksefIntegration.findUnique({ where: { organizationId: ctx.organizationId } });
+    if (row) {
+      ksefInitial = {
+        environment: row.environment,
+        status: row.status,
+        nip: row.nip,
+        tokenMasked: row.tokenEncrypted ? "••••••••" : "—",
+        lastSyncAt: row.lastSyncAt?.toISOString() ?? null,
+        lastSyncMessage: row.lastSyncMessage,
+        lastError: row.lastError,
+      };
+    }
+  }
   const supabaseHint =
     dbUrl.includes("supabase") ||
     envPresent("SUPABASE_URL") ||
-    envPresent("NEXT_PUBLIC_SUPABASE_URL");
+    envPresent("NEXT_PUBLIC_SUPABASE_URL") ||
+    envPresent("NEXT_PUBLIC_SUPABASE_ANON_KEY");
 
   let dbOk = false;
   try {
@@ -51,17 +80,20 @@ export default async function IntegracjeSettingsPage() {
           <CardHeader className="flex flex-row items-start justify-between gap-2 space-y-0">
             <div>
               <CardTitle className="text-base">OCR lokalny (Tesseract)</CardTitle>
-              <CardDescription>Odczyt PDF (tekst osadzony) oraz JPG/PNG — bez kluczy API.</CardDescription>
+              <CardDescription>
+                Tesseract (obrazy + skany PDF), pdf-parse (tekst osadzony) — bez kluczy API.
+              </CardDescription>
             </div>
             <CheckCircle2 className="text-emerald-600 size-5 shrink-0" aria-hidden />
           </CardHeader>
           <CardContent className="text-sm">
             <Badge variant="default">Aktywny</Badge>
             <p className="text-muted-foreground mt-3 text-xs leading-relaxed">
-              Silnik: <code className="bg-muted rounded px-1">tesseract.js</code> (języki{" "}
-              <code className="bg-muted rounded px-1">pol+eng</code>), PDF:{" "}
-              <code className="bg-muted rounded px-1">pdf-parse</code>. Skany PDF bez warstwy tekstowej wymagają pliku
-              graficznego.
+              Silnik: <code className="bg-muted rounded px-1">{ocr.engine}</code>, języki{" "}
+              <code className="bg-muted rounded px-1">{ocr.languages}</code>, preprocess:{" "}
+              {ocr.preprocess ? "tak" : "nie"}, PDF tekst:{" "}
+              <code className="bg-muted rounded px-1">{ocr.pdfText}</code>, skan PDF → Tesseract:{" "}
+              {ocr.pdfScannedFallback ? `tak (max ${ocr.pdfMaxPages} str.)` : "nie"}.
             </p>
           </CardContent>
         </Card>
@@ -70,7 +102,7 @@ export default async function IntegracjeSettingsPage() {
           <CardHeader className="flex flex-row items-start justify-between gap-2 space-y-0">
             <div>
               <CardTitle className="text-base">Supabase / Postgres</CardTitle>
-              <CardDescription>Dane aplikacji i Better Auth.</CardDescription>
+              <CardDescription>Dane aplikacji (Prisma + PostgreSQL).</CardDescription>
             </div>
             {dbOk ? (
               <CheckCircle2 className="text-emerald-600 size-5 shrink-0" aria-hidden />
@@ -89,6 +121,20 @@ export default async function IntegracjeSettingsPage() {
           </CardContent>
         </Card>
       </div>
+
+      {canKsef ? (
+        <Card className="border-border/80 mt-4 shadow-sm">
+          <CardHeader>
+            <CardTitle className="text-base">KSeF — Krajowy System e-Faktur</CardTitle>
+            <CardDescription>
+              Połączenie, import faktur wystawionych i otrzymanych. Wymaga modułu Księgowość i uprawnienia integracji.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <KsefIntegrationForm initial={ksefInitial} organizationNip={org.nip} />
+          </CardContent>
+        </Card>
+      ) : null}
     </>
   );
 }

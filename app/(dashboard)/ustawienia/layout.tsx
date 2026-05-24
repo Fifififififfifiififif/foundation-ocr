@@ -1,5 +1,12 @@
+"use client";
+
 import { SettingsNav } from "@/components/settings/settings-nav";
 
+/**
+ * Layout ustawień jako Client Component — unika błędu Turbopack
+ * „module factory is not available” przy SSR client nav z server layout.
+ * Strony podrzędne (organizacja, wygląd, …) nadal mogą być Server Components.
+ */
 export default function UstawieniaLayout({ children }: { children: React.ReactNode }) {
   return (
     <div className="mx-auto max-w-6xl space-y-8">

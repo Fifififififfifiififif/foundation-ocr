@@ -17,15 +17,17 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import prisma from "@/lib/prisma";
-import { getAppContext } from "@/lib/app-context";
+import { requireEntitlementModule } from "@/lib/require-entitlement";
+import { canManageUsers } from "@/src/modules/permissions/hierarchy";
 
 export default async function ProjectsPage({
   searchParams,
 }: {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
-  const { organizationId: orgId } = await getAppContext();
-  const isAdmin = true;
+  const ctx = await requireEntitlementModule("PROJECTS");
+  const { organizationId: orgId, user } = ctx;
+  const isAdmin = canManageUsers(user.role);
   const sp = await searchParams;
   const search = typeof sp.q === "string" ? sp.q.trim() : "";
 

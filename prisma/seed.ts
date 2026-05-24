@@ -1,40 +1,14 @@
-import { randomUUID } from "crypto";
 import "dotenv/config";
-import { hashPassword } from "better-auth/crypto";
-import { PrismaPg } from "@prisma/adapter-pg";
-import { Pool } from "pg";
 
-import { getPgPoolOptionsFromConnectionString } from "../lib/pg-pool-options";
-import { PrismaClient } from "../generated/prisma";
-
-async function ensureCredentialAccount(
-  prisma: PrismaClient,
-  userId: string,
-  plainPassword: string,
-) {
-  const hashed = await hashPassword(plainPassword);
-  await prisma.account.deleteMany({ where: { userId, providerId: "credential" } });
-  await prisma.account.create({
-    data: {
-      id: randomUUID(),
-      userId,
-      accountId: userId,
-      providerId: "credential",
-      password: hashed,
-    },
-  });
-}
+import prisma from "../lib/prisma";
+import { seedPlatformModules, seedOrganizationModules } from "../src/modules/organizations/modules";
 
 async function main() {
-  const connectionString =
-    process.env.DIRECT_DATABASE_URL?.trim() || process.env.DATABASE_URL;
-  if (!connectionString) {
-    throw new Error("DATABASE_URL lub DIRECT_DATABASE_URL jest wymagane do seeda");
+  if (!process.env.DATABASE_URL?.trim()) {
+    throw new Error("DATABASE_URL jest wymagane do seeda");
   }
 
-  const pool = new Pool(getPgPoolOptionsFromConnectionString(connectionString));
-  const adapter = new PrismaPg(pool);
-  const prisma = new PrismaClient({ adapter });
+  await seedPlatformModules();
 
   const orgId = "org_default";
   const adminId = "seed-admin-id";
@@ -45,42 +19,37 @@ async function main() {
     where: { id: orgId },
     create: {
       id: orgId,
-      name: "Fundacja (demo)",
+      slug: "default",
+      name: "Organizacja demo",
       tagline: "Przykładowa organizacja z seeda",
       accentColor: "#18181b",
       appearanceTheme: "system",
     },
     update: {
-      name: "Fundacja (demo)",
+      name: "Organizacja demo",
+      slug: "default",
     },
   });
 
-  await prisma.user.upsert({
-    where: { email: "admin@foundation.local" },
-    create: {
-      id: adminId,
-      name: "Anna Kowalska",
-      email: "admin@foundation.local",
-      emailVerified: true,
-      role: "ADMIN",
-      organizationId: orgId,
-      banned: false,
-    },
-    update: { role: "ADMIN", organizationId: orgId, banned: false },
-  });
+  await seedOrganizationModules(orgId);
 
-  await prisma.user.upsert({
-    where: { email: "user@foundation.local" },
+  const periodEnd = new Date();
+  periodEnd.setDate(periodEnd.getDate() + 30);
+  await prisma.subscription.upsert({
+    where: { organizationId: orgId },
     create: {
-      id: userId,
-      name: "Jan Nowak",
-      email: "user@foundation.local",
-      emailVerified: true,
-      role: "USER",
       organizationId: orgId,
-      banned: false,
+      plan: "pro",
+      status: "active",
+      billingCycle: "monthly",
+      currentPeriodStart: new Date(),
+      currentPeriodEnd: periodEnd,
     },
-    update: { organizationId: orgId },
+    update: {
+      plan: "pro",
+      status: "active",
+      currentPeriodEnd: periodEnd,
+    },
   });
 
   await prisma.user.upsert({
@@ -89,23 +58,57 @@ async function main() {
       id: exampleAdminId,
       name: "Administrator (seed)",
       email: "admin@example.com",
-      emailVerified: true,
       role: "ADMIN",
       organizationId: orgId,
+      isSuperAdmin: true,
       banned: false,
     },
     update: {
       name: "Administrator (seed)",
       role: "ADMIN",
       organizationId: orgId,
+      isSuperAdmin: true,
       banned: false,
     },
   });
 
-  await ensureCredentialAccount(prisma, adminId, "demo12345");
-  await ensureCredentialAccount(prisma, userId, "demo12345");
-  const ex = await prisma.user.findUniqueOrThrow({ where: { email: "admin@example.com" } });
-  await ensureCredentialAccount(prisma, ex.id, "password123");
+  await prisma.user.upsert({
+    where: { email: "admin@org.local" },
+    create: {
+      id: adminId,
+      name: "Anna Kowalska",
+      email: "admin@org.local",
+      role: "ADMIN",
+      organizationId: orgId,
+      banned: false,
+    },
+    update: { role: "ADMIN", organizationId: orgId, banned: false },
+  });
+
+  await prisma.user.upsert({
+    where: { email: "user@org.local" },
+    create: {
+      id: userId,
+      name: "Jan Nowak",
+      email: "user@org.local",
+      role: "MEMBER",
+      organizationId: orgId,
+      banned: false,
+    },
+    update: { organizationId: orgId, role: "MEMBER" },
+  });
+
+  for (const uid of [exampleAdminId, adminId, userId]) {
+    await prisma.organizationMember.upsert({
+      where: { organizationId_userId: { organizationId: orgId, userId: uid } },
+      create: {
+        organizationId: orgId,
+        userId: uid,
+        role: uid === userId ? "MEMBER" : "ADMIN",
+      },
+      update: {},
+    });
+  }
 
   const p1 = await prisma.project.upsert({
     where: { id: "seed-project-1" },
@@ -116,19 +119,19 @@ async function main() {
       grantNumber: "GR-2025-0142",
       fundingSource: "EU Erasmus+",
       budget: 125000,
-      description: "Warsztaty i materiały edukacyjne dla szkół wiejskich.",
+      description: "Warsztaty i materiały edukacyjne.",
     },
     update: { organizationId: orgId },
   });
 
-  const p2 = await prisma.project.upsert({
+  await prisma.project.upsert({
     where: { id: "seed-project-2" },
     create: {
       id: "seed-project-2",
       organizationId: orgId,
       name: "Zdrowie w Społeczności",
       grantNumber: "GR-2025-0201",
-      fundingSource: "Narodowy Fundusz Zdrowia",
+      fundingSource: "Program regionalny",
       budget: 89000,
       description: "Mobilne kliniki i badania profilaktyczne.",
     },
@@ -168,17 +171,18 @@ async function main() {
     create: {
       id: "seed-document-1",
       organizationId: orgId,
+      source: "ocr",
       invoiceNumber: "FV/2025/03/88",
       issueDate: new Date("2025-03-10"),
       paymentDate: new Date("2025-03-24"),
       amountNet: 2439.02,
       amountGross: 3000,
-      expenseCategory: "Materiały edukacyjne",
-      notes: "Materiały drukowane na warsztaty",
+      expenseCategory: "Materiały",
+      notes: "Materiały drukowane",
       status: "approved",
-      filePath: "seed/placeholder.pdf",
-      fileName: "placeholder.pdf",
-      mimeType: "application/pdf",
+      filePath: null,
+      fileName: null,
+      mimeType: null,
       ocrRawText:
         "FAKTURA VAT\nFV/2025/03/88\nData wystawienia: 10.03.2025\nNIP: 527-000-00-00\nKwota brutto: 3 000,00 PLN",
       projectId: p1.id,
@@ -189,33 +193,34 @@ async function main() {
   });
 
   await prisma.document.upsert({
-    where: { id: "seed-document-2" },
+    where: { id: "seed-document-manual" },
     create: {
-      id: "seed-document-2",
+      id: "seed-document-manual",
       organizationId: orgId,
-      invoiceNumber: "FV/2025/04/12",
-      issueDate: new Date("2025-04-02"),
-      paymentDate: null,
-      amountNet: 1626.02,
-      amountGross: 2000,
-      expenseCategory: "Usługi medyczne",
-      notes: "Oczekuje na weryfikację",
-      status: "review",
-      filePath: "seed/placeholder2.pdf",
-      fileName: "scan.jpg",
-      mimeType: "image/jpeg",
-      ocrRawText: "NIP 5270000000\nFV/2025/04/12\n1 626,02 PLN",
-      projectId: p2.id,
-      contractorId: c1.id,
-      createdByUserId: userId,
+      source: "manual",
+      invoiceNumber: "FV/MAN/001",
+      issueDate: new Date("2025-05-01"),
+      dueDate: new Date("2025-05-15"),
+      amountNet: 1000,
+      amountVat: 230,
+      amountGross: 1230,
+      currency: "PLN",
+      sellerName: "Dostawca Demo Sp. z o.o.",
+      sellerNip: "5270000001",
+      status: "approved",
+      createdByUserId: exampleAdminId,
+      lineItems: {
+        create: [
+          { description: "Usługa konsultingowa", quantity: 1, unitPrice: 1000, vatRate: 23, netAmount: 1000, sortOrder: 0 },
+        ],
+      },
     },
     update: { organizationId: orgId },
   });
 
   await prisma.$disconnect();
-  await pool.end();
   console.log(
-    "Seed OK. Logowanie: admin@example.com / password123 (ADMIN) · admin@foundation.local / demo12345 · user@foundation.local / demo12345",
+    "Seed OK. Super admin w DB: admin@example.com. Supabase Auth: npm run db:create-super-admin (wymaga SUPABASE_SERVICE_ROLE_KEY).",
   );
 }
 

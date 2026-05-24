@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import prisma from "@/lib/prisma";
-import { getAppContext } from "@/lib/app-context";
+import { getApiAppContext } from "@/lib/api-app-context";
 import { roleHasPermission } from "@/lib/permissions";
 import { documentStatusPl, organizationRolePl } from "@/lib/ui-i18n";
 import type { SearchResultGroup } from "@/lib/search-types";
@@ -9,7 +9,10 @@ import type { SearchResultGroup } from "@/lib/search-types";
 const take = 8;
 
 export async function GET(req: NextRequest) {
-  const { organizationId: orgId, user } = await getAppContext();
+  const resolved = await getApiAppContext({ permission: "documents.read", module: "DOCUMENTS" });
+  if (!resolved.ok) return resolved.response;
+  const { organizationId: orgId, user, entitlement } = resolved.ctx;
+  const searchRawText = entitlement.features.advanced_ocr || entitlement.features.bulk_processing;
   const canListUsers = roleHasPermission(user.role, "settings.users");
 
   const q = (req.nextUrl.searchParams.get("q") ?? "").trim();
@@ -28,7 +31,7 @@ export async function GET(req: NextRequest) {
           { invoiceNumber: mode },
           { fileName: mode },
           { ocrVendorName: mode },
-          ...(q.length >= 4 ? [{ ocrRawText: mode }] : []),
+          ...(searchRawText && q.length >= 4 ? [{ ocrRawText: mode }] : []),
         ],
       },
       take,
@@ -76,7 +79,7 @@ export async function GET(req: NextRequest) {
       title: "Faktury",
       items: documents.map((d) => ({
         id: d.id,
-        title: d.invoiceNumber?.trim() || d.fileName,
+        title: d.invoiceNumber?.trim() || d.fileName || "Faktura",
         subtitle: documentStatusPl(d.status),
         href: `/documents/${d.id}`,
       })),

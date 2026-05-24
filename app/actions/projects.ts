@@ -5,9 +5,11 @@ import { redirect } from "next/navigation";
 
 import prisma from "@/lib/prisma";
 import { requirePermission } from "@/lib/require-permission";
+import { requireEntitlementModule } from "@/lib/require-entitlement";
 import { projectSchema } from "@/lib/validations";
 
 export async function submitCreateProject(formData: FormData) {
+  await requireEntitlementModule("PROJECTS");
   const { organizationId: orgId } = await requirePermission("projects.write");
   const raw = Object.fromEntries(formData.entries());
   const parsed = projectSchema.safeParse(raw);

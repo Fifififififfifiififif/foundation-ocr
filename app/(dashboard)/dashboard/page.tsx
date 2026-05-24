@@ -18,34 +18,47 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { FinancialOverviewCards } from "@/components/dashboard/financial-overview-cards";
 import { DashboardCharts } from "@/components/analytics/dashboard-charts";
 import { InvoiceCalendar } from "@/components/calendar/invoice-calendar";
 import { PageHeader } from "@/components/layout/page-header";
 import prisma from "@/lib/prisma";
 import { Prisma } from "@/generated/prisma";
-import { parseDashboardPrefs } from "@/lib/dashboard-prefs";
+import { effectiveDashboardWidgets, parseDashboardPrefs } from "@/lib/dashboard-prefs";
 import { formatMoneyPl } from "@/lib/format/money";
+import { SubscriptionDashboardAlert } from "@/components/billing/subscription-dashboard-alert";
 import { getAppContext } from "@/lib/app-context";
 import { getOrganizationById } from "@/lib/organization-settings";
 import { isPrismaMissingSchemaObject } from "@/lib/prisma-recoverable";
 import { breadcrumbSegmentPl } from "@/lib/i18n/navigation";
 import { UNASSIGNED_LABEL } from "@/lib/optional-relation-ids";
 import { documentStatusPl } from "@/lib/ui-i18n";
+import { computeFinancialOverview } from "@/src/modules/finance/summary";
 
 export default async function DashboardPage() {
-  const { organizationId: orgId } = await getAppContext();
+  const { organizationId: orgId, enabledModules, subscription } = await getAppContext();
   const orgWhere = { organizationId: orgId };
   const orgRow = await getOrganizationById(orgId);
+  const dashPrefs = parseDashboardPrefs(orgRow.dashboardPreferences);
+  const widgets = effectiveDashboardWidgets(dashPrefs, enabledModules);
+  const loadAnalytics = widgets.charts;
+  const loadFinance = enabledModules.has("ACCOUNTING");
+  const loadProjectsBreakdown = widgets.projectsBreakdown;
+  const loadProjects = widgets.calendar || loadProjectsBreakdown || loadAnalytics;
+  const loadProjectSpend = loadProjectsBreakdown || loadAnalytics;
 
   try {
-    await prisma.document.findFirst({ where: orgWhere, select: { id: true } });
+    await prisma.document.findFirst({
+      where: orgWhere,
+      select: { id: true, classification: true },
+    });
   } catch (e) {
     if (isPrismaMissingSchemaObject(e)) {
       return (
         <div className="flex flex-col gap-6">
           <PageHeader
             title={breadcrumbSegmentPl.dashboard}
-            description="W bazie nie ma jeszcze tabel aplikacji (np. document). Pulpit ze statystykami jest wyłączony, dopóki nie wdrożysz migracji."
+            description="Schemat bazy jest nieaktualny (brakuje kolumn finansowych/KSeF, np. document.classification). Zsynchronizuj bazę przed użyciem pulpitu."
           />
           <Card className="border-border/80 max-w-2xl shadow-sm">
             <CardHeader>
@@ -54,11 +67,11 @@ export default async function DashboardPage() {
             </CardHeader>
             <CardContent className="space-y-3 font-mono text-sm">
               <p>
-                <code className="bg-muted rounded px-1.5 py-0.5">npm run db:deploy</code>
+                <code className="bg-muted rounded px-1.5 py-0.5">npm run db:repair-finance</code>
               </p>
+              <p className="text-muted-foreground text-xs">lub pełna synchronizacja:</p>
               <p>
-                Opcjonalnie przykładowe dane:{" "}
-                <code className="bg-muted rounded px-1.5 py-0.5">npm run db:seed</code>
+                <code className="bg-muted rounded px-1.5 py-0.5">npm run db:sync</code>
               </p>
             </CardContent>
           </Card>
@@ -99,16 +112,20 @@ export default async function DashboardPage() {
       where: { ...orgWhere, archived: false },
       _sum: { amountGross: true },
     }),
-    prisma.document.groupBy({
-      by: ["projectId"],
-      where: { ...orgWhere, archived: false },
-      _sum: { amountGross: true },
-      orderBy: { _sum: { amountGross: "desc" } },
-    }),
-    prisma.project.findMany({
-      where: orgWhere,
-      select: { id: true, name: true, budget: true },
-    }),
+    loadProjectSpend
+      ? prisma.document.groupBy({
+          by: ["projectId"],
+          where: { ...orgWhere, archived: false },
+          _sum: { amountGross: true },
+          orderBy: { _sum: { amountGross: "desc" } },
+        })
+      : Promise.resolve([]),
+    loadProjects
+      ? prisma.project.findMany({
+          where: orgWhere,
+          select: { id: true, name: true, budget: true },
+        })
+      : Promise.resolve([]),
     prisma.document.findMany({
       where: { ...orgWhere, archived: false },
       take: 8,
@@ -118,18 +135,22 @@ export default async function DashboardPage() {
         contractor: { select: { name: true } },
       },
     }),
-    prisma.document.groupBy({
-      by: ["status"],
-      where: { ...orgWhere, archived: false },
-      _count: { id: true },
-    }),
-    prisma.document.groupBy({
-      by: ["contractorId"],
-      where: { ...orgWhere, archived: false },
-      _sum: { amountGross: true },
-      orderBy: { _sum: { amountGross: "desc" } },
-      take: 8,
-    }),
+    loadAnalytics
+      ? prisma.document.groupBy({
+          by: ["status"],
+          where: { ...orgWhere, archived: false },
+          _count: { id: true },
+        })
+      : Promise.resolve([]),
+    loadAnalytics
+      ? prisma.document.groupBy({
+          by: ["contractorId"],
+          where: { ...orgWhere, archived: false },
+          _sum: { amountGross: true },
+          orderBy: { _sum: { amountGross: "desc" } },
+          take: 8,
+        })
+      : Promise.resolve([]),
     prisma.contractor.findMany({
       where: orgWhere,
       select: { id: true, name: true },
@@ -149,30 +170,29 @@ export default async function DashboardPage() {
     }),
   ]);
 
-  const organization = orgRow;
-  const dashPrefs = parseDashboardPrefs(organization.dashboardPreferences);
-
   const projectName = Object.fromEntries(projects.map((p) => [p.id, p.name]));
   const totalExpensesNum = Number(expenseAgg._sum.amountGross ?? 0);
 
-  const trendRows = await prisma.$queryRaw<
-    { ym: string; brutto: unknown; doc_count: bigint; with_ocr: bigint }[]
-  >(Prisma.sql`
-    SELECT
-      to_char("issueDate", 'YYYY-MM') AS ym,
-      COALESCE(SUM("amountGross"), 0) AS brutto,
-      COUNT(*)::bigint AS doc_count,
-      COUNT(*) FILTER (
-        WHERE "ocrRawText" IS NOT NULL AND length(trim("ocrRawText")) > 0
-      )::bigint AS with_ocr
-    FROM "document"
-    WHERE "organizationId" = ${orgId}
-      AND archived = false
-      AND "issueDate" IS NOT NULL
-      AND "issueDate" >= ${since}
-    GROUP BY to_char("issueDate", 'YYYY-MM')
-    ORDER BY ym ASC
-  `);
+  const trendRows = loadAnalytics
+    ? await prisma.$queryRaw<
+        { ym: string; brutto: unknown; doc_count: bigint; with_ocr: bigint }[]
+      >(Prisma.sql`
+        SELECT
+          to_char("issueDate", 'YYYY-MM') AS ym,
+          COALESCE(SUM("amountGross"), 0) AS brutto,
+          COUNT(*)::bigint AS doc_count,
+          COUNT(*) FILTER (
+            WHERE "ocrRawText" IS NOT NULL AND length(trim("ocrRawText")) > 0
+          )::bigint AS with_ocr
+        FROM "document"
+        WHERE "organizationId" = ${orgId}
+          AND archived = false
+          AND "issueDate" IS NOT NULL
+          AND "issueDate" >= ${since}
+        GROUP BY to_char("issueDate", 'YYYY-MM')
+        ORDER BY ym ASC
+      `)
+    : [];
 
   const monthlySpend = trendRows.map((r) => ({
     month: r.ym,
@@ -205,6 +225,14 @@ export default async function DashboardPage() {
   const spentByProject = Object.fromEntries(
     byProject.map((b) => [b.projectId ?? "", Number(b._sum.amountGross ?? 0)]),
   );
+
+  const financialOverview = loadFinance
+    ? await computeFinancialOverview(orgId).catch((e) => {
+        if (isPrismaMissingSchemaObject(e)) return null;
+        throw e;
+      })
+    : null;
+
   const unassignedProjectSpent = spentByProject[""] ?? 0;
   const projectUsage = [
     ...projects.map((p) => ({
@@ -232,7 +260,11 @@ export default async function DashboardPage() {
         description="Przegląd faktur, OCR i wydatków — dane w czasie rzeczywistym z bazy."
       />
 
-      {dashPrefs.widgets.kpi && (
+      <SubscriptionDashboardAlert subscription={subscription} />
+
+      {financialOverview ? <FinancialOverviewCards overview={financialOverview} /> : null}
+
+      {widgets.kpi && (
         <>
           <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
             <Card className="border-border/80 shadow-sm transition-all duration-200 hover:border-border hover:shadow-md">
@@ -324,7 +356,7 @@ export default async function DashboardPage() {
         </>
       )}
 
-      {dashPrefs.widgets.calendar && (
+      {widgets.calendar && (
       <Card className="border-border/80 w-full shadow-sm transition-all duration-200 hover:border-border hover:shadow-md">
         <CardHeader className="space-y-4 pb-4">
           <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
@@ -360,7 +392,7 @@ export default async function DashboardPage() {
       </Card>
       )}
 
-      {dashPrefs.widgets.charts && (
+      {widgets.charts && (
       <section className="space-y-3">
         <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
           <div>
@@ -384,7 +416,7 @@ export default async function DashboardPage() {
       </section>
       )}
 
-      {dashPrefs.widgets.projectsBreakdown && (
+      {widgets.projectsBreakdown && (
       <Card className="border-border/80 shadow-sm transition-all duration-200 hover:border-border hover:shadow-md">
         <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-2">
           <div>
@@ -426,7 +458,7 @@ export default async function DashboardPage() {
       </Card>
       )}
 
-      {dashPrefs.widgets.recent && (
+      {widgets.recent && (
       <Card className="border-border/80 shadow-sm transition-all duration-200 hover:border-border hover:shadow-md">
         <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-2">
           <div>

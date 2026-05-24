@@ -11,10 +11,10 @@ import {
 import prisma from "@/lib/prisma";
 import { UNASSIGNED_LABEL } from "@/lib/optional-relation-ids";
 import { documentStatusPl } from "@/lib/ui-i18n";
-import { getAppContext } from "@/lib/app-context";
+import { requireOcrModule } from "@/src/modules/permissions/require-ocr";
 
 export default async function OcrHubPage() {
-  const { organizationId: orgId } = await getAppContext();
+  const { organizationId: orgId } = await requireOcrModule();
 
   const [inReview, recentFailed] = await Promise.all([
     prisma.document.findMany({

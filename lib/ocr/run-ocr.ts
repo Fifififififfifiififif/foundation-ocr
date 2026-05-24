@@ -1,19 +1,35 @@
 import { ALLOWED_MIME_TYPES } from "@/lib/constants";
 
+import type { OcrRuntimeConfig } from "./config";
+import { getOcrRuntimeConfig } from "./config";
 import { describeOcrFailure } from "./errors";
 import { extractPdfText } from "./pdf";
 import { extractImageText } from "./tesseract";
 
+export type OcrEngineSource = "tesseract" | "pdf-text" | "tesseract-pdf";
+
 export type OcrRunResult = {
   text: string;
-  /** Średnia pewność (0–100) dla obrazów; null dla PDF z warstwą tekstu */
+  /** Średnia pewność Tesseract (0–100); null dla PDF z warstwą tekstową */
   meanConfidence: number | null;
+  engine: OcrEngineSource;
+  languages: string;
 };
 
+export type OcrRunOptions = Partial<OcrRuntimeConfig>;
+
 /**
- * Pełny pipeline OCR: PDF (pdf-parse) lub obraz (Tesseract, pol+eng).
+ * Pełny pipeline OCR:
+ * - obrazy → preprocess + Tesseract (pol+eng domyślnie)
+ * - PDF → pdf-parse, a przy skanie fallback Tesseract na stronach
  */
-export async function runOcr(buffer: Buffer, mimeType: string): Promise<OcrRunResult> {
+export async function runOcr(
+  buffer: Buffer,
+  mimeType: string,
+  options?: OcrRunOptions,
+): Promise<OcrRunResult> {
+  const config = getOcrRuntimeConfig(options);
+
   if (!buffer?.length) {
     throw new Error("Brak pliku.");
   }
@@ -23,11 +39,22 @@ export async function runOcr(buffer: Buffer, mimeType: string): Promise<OcrRunRe
 
   try {
     if (mimeType === "application/pdf") {
-      const text = await extractPdfText(buffer);
-      return { text, meanConfidence: null };
+      const pdf = await extractPdfText(buffer, config);
+      return {
+        text: pdf.text,
+        meanConfidence: pdf.meanConfidence,
+        engine: pdf.source,
+        languages: config.languages,
+      };
     }
-    const { text, confidence } = await extractImageText(buffer);
-    return { text, meanConfidence: confidence };
+
+    const { text, confidence, languages } = await extractImageText(buffer, config, mimeType);
+    return {
+      text,
+      meanConfidence: confidence,
+      engine: "tesseract",
+      languages,
+    };
   } catch (e: unknown) {
     if (e instanceof Error) {
       const m = e.message.trim();

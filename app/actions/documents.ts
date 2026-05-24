@@ -1,14 +1,13 @@
 "use server";
 
-import fs from "fs/promises";
-import path from "path";
-
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
 import prisma from "@/lib/prisma";
 import { getOrganizationById } from "@/lib/organization-settings";
 import { requirePermission } from "@/lib/require-permission";
+import { mayRunOcrPipeline } from "@/src/modules/permissions/check";
+import { requireOcrExecution } from "@/src/modules/permissions/require-ocr";
 import {
   documentFormSchema,
   documentVerifyFieldsSchema,
@@ -16,13 +15,13 @@ import {
 import {
   effectiveUploadMimeType,
   validateUpload,
-  saveUploadedFile,
   validateFileSignature,
 } from "@/lib/uploads";
+import { readStoredFile, storeUploadedFile } from "@/lib/file-storage";
 import {
-  assessParsedInvoice,
+  assessOcrText,
   describeOcrFailure,
-  parseInvoiceFromText,
+  documentDataFromOcrAssessment,
   runOcr,
 } from "@/lib/ocr";
 import { recordDocumentChanges } from "@/lib/document-history";
@@ -38,19 +37,19 @@ import {
   parseOptionalCuid,
   suggestContractorIdFromOcr,
 } from "@/lib/optional-relation-ids";
-
-function mergeOcrBuyerNote(notes: string | null, buyerName: string | null): string | null {
-  const n = notes?.trim() || null;
-  const b = buyerName?.trim() || null;
-  if (!b) return n;
-  const tag = `Nabywca (OCR): ${b}`;
-  if (n?.includes("Nabywca (OCR):")) return n;
-  return n ? `${tag}\n\n${n}` : tag;
-}
+import { requireEntitlementQuota } from "@/lib/require-entitlement";
+import { recordUsageMetric } from "@/src/modules/subscription/enforce";
+import {
+  requireActionModule,
+  requireActionQuota,
+} from "@/lib/entitlement-action";
 
 export async function submitCreateDocument(formData: FormData) {
-  const { organizationId: orgId, user } = await requirePermission("documents.write");
+  const ctx = await requirePermission("documents.write");
+  await requireEntitlementQuota("documents");
+  const { organizationId: orgId, user, enabledModules } = ctx;
   const org = await getOrganizationById(orgId);
+  const runOcrPipeline = mayRunOcrPipeline(enabledModules, org.ocrEnabled, ctx.entitlement);
 
   const file = formData.get("file") as File | null;
   if (!file || file.size === 0) {
@@ -71,7 +70,7 @@ export async function submitCreateDocument(formData: FormData) {
   if (!sig.ok) {
     redirect(`/documents/new?error=${encodeURIComponent(sig.error)}`);
   }
-  const { storedName, displayName, mimeType: storedMime } = await saveUploadedFile(
+  const { storedName, displayName, mimeType: storedMime } = await storeUploadedFile(
     buffer,
     file.name,
     mimeType,
@@ -80,24 +79,32 @@ export async function submitCreateDocument(formData: FormData) {
   let ocrText = "";
   let ocrMeanConfidence: number | null = null;
   let ocrError = "";
-  if (org.ocrEnabled) {
+
+  if (runOcrPipeline) {
+    const ocrGate = requireActionQuota(ctx, "ocr");
+    if (ocrGate) {
+      redirect(`/documents/new?error=${encodeURIComponent(ocrGate)}`);
+    }
+    const modGate = requireActionModule(ctx, "OCR");
+    if (modGate) {
+      redirect(`/documents/new?error=${encodeURIComponent(modGate)}`);
+    }
     try {
       const ocr = await runOcr(buffer, storedMime);
       ocrText = ocr.text;
       ocrMeanConfidence = ocr.meanConfidence;
+      await recordUsageMetric(orgId, "OCR", "ocr_jobs");
     } catch (e: unknown) {
       ocrError = describeOcrFailure(e);
       console.error("OCR failed:", e);
     }
   }
 
-  const rawHints = parseInvoiceFromText(ocrText);
-  const assessed = assessParsedInvoice(rawHints, ocrText, ocrMeanConfidence);
+  const assessed = assessOcrText(ocrText, ocrMeanConfidence);
   const hints = assessed.fields;
   const manualReview = assessed.manualReviewRequired;
   const qualityReasons = assessed.reasons;
 
-  const finalProjectId = userProjectId;
   let finalContractorId = userContractorId;
   if (!finalContractorId) {
     finalContractorId = await suggestContractorIdFromOcr(prisma, {
@@ -114,23 +121,13 @@ export async function submitCreateDocument(formData: FormData) {
       filePath: storedName,
       fileName: displayName,
       mimeType: storedMime,
-      ocrRawText: ocrText || null,
-      ocrMeanConfidence: ocrMeanConfidence != null ? Math.round(ocrMeanConfidence) : null,
-      ocrManualReviewRecommended: manualReview,
-      ocrQualityReasons: qualityReasons.length ? qualityReasons : undefined,
-      invoiceNumber: hints.invoiceNumber,
-      issueDate: hints.issueDate,
-      paymentDate: hints.paymentDate,
-      amountNet: hints.amountNet,
-      amountVat: hints.vatAmount,
-      amountGross: hints.amountGross,
-      documentType: hints.documentType,
-      ocrVendorName: hints.sellerName,
-      ocrContractorNip: hints.nip,
-      ocrBankAccount: hints.bankAccount,
-      notes: mergeOcrBuyerNote(hints.notes, hints.buyerName),
+      ...documentDataFromOcrAssessment(assessed, {
+        ocrRawText: ocrText || null,
+        ocrMeanConfidence,
+        ocrQualityReasons: qualityReasons,
+      }),
       status: ocrText ? "review" : "draft",
-      projectId: finalProjectId,
+      projectId: userProjectId,
       contractorId: finalContractorId,
       createdByUserId: user.id,
     },
@@ -260,7 +257,7 @@ export async function submitVerifyDocumentAction(
 }
 
 export async function submitDeleteDocument(id: string) {
-  const { organizationId: orgId, user } = await requirePermission("documents.write");
+  const { organizationId: orgId } = await requirePermission("documents.write");
 
   await prisma.$transaction(async (tx) => {
     await tx.documentHistory.deleteMany({ where: { documentId: id, organizationId: orgId } });
@@ -276,15 +273,24 @@ export type DocumentActionResult =
   | { ok: false; error: string };
 
 export async function retryDocumentOcr(id: string): Promise<DocumentActionResult> {
-  const { organizationId: orgId, user } = await requirePermission("documents.write");
-  const org = await getOrganizationById(orgId);
+  const exec = await requireOcrExecution();
+  if (!exec.allowed) {
+    return {
+      ok: false,
+      error: "Moduł OCR jest wyłączony dla tej organizacji przez administratora platformy.",
+    };
+  }
+  const { organizationId: orgId, user } = exec.ctx;
+  const org = exec.org;
   const doc = await prisma.document.findUnique({ where: { id, organizationId: orgId } });
   if (!doc) return { ok: false, error: "Nie znaleziono dokumentu." };
 
-  const fullPath = path.join(process.cwd(), "uploads", doc.filePath);
   let buffer: Buffer;
   try {
-    buffer = await fs.readFile(fullPath);
+    if (!doc.filePath) {
+      return { ok: false, error: "Brak pliku — prześlij skan lub utwórz fakturę z załącznikiem." };
+    }
+    buffer = await readStoredFile(doc.filePath);
   } catch {
     return { ok: false, error: "Nie można odczytać pliku z dysku." };
   }
@@ -292,7 +298,7 @@ export async function retryDocumentOcr(id: string): Promise<DocumentActionResult
   let ocrText = "";
   let ocrMeanConfidence: number | null = null;
   try {
-    const ocr = await runOcr(buffer, doc.mimeType);
+    const ocr = await runOcr(buffer, doc.mimeType ?? "application/pdf");
     ocrText = ocr.text;
     ocrMeanConfidence = ocr.meanConfidence;
   } catch (e: unknown) {
@@ -301,17 +307,20 @@ export async function retryDocumentOcr(id: string): Promise<DocumentActionResult
     return { ok: false, error: msg };
   }
 
-  const rawHints = parseInvoiceFromText(ocrText);
-  const assessed = assessParsedInvoice(rawHints, ocrText, ocrMeanConfidence);
+  await recordUsageMetric(orgId, "OCR", "ocr_jobs");
+
+  const assessed = assessOcrText(ocrText, ocrMeanConfidence);
   const hints = assessed.fields;
+  const ocrData = documentDataFromOcrAssessment(assessed, {
+    ocrRawText: ocrText || null,
+    ocrMeanConfidence,
+    ocrQualityReasons: assessed.reasons,
+  });
 
   await prisma.document.update({
     where: { id, organizationId: orgId },
     data: {
-      ocrRawText: ocrText || null,
-      ocrMeanConfidence: ocrMeanConfidence != null ? Math.round(ocrMeanConfidence) : null,
-      ocrManualReviewRecommended: assessed.manualReviewRequired,
-      ocrQualityReasons: assessed.reasons.length ? assessed.reasons : undefined,
+      ...ocrData,
       status: ocrText ? "review" : doc.status,
       invoiceNumber: doc.invoiceNumber ?? hints.invoiceNumber,
       issueDate: doc.issueDate ?? hints.issueDate,
@@ -323,7 +332,7 @@ export async function retryDocumentOcr(id: string): Promise<DocumentActionResult
       ocrVendorName: doc.ocrVendorName ?? hints.sellerName,
       ocrContractorNip: doc.ocrContractorNip ?? hints.nip,
       ocrBankAccount: doc.ocrBankAccount ?? hints.bankAccount,
-      notes: doc.notes ?? mergeOcrBuyerNote(hints.notes, hints.buyerName),
+      notes: doc.notes ?? hints.notes,
     },
   });
 
@@ -331,7 +340,7 @@ export async function retryDocumentOcr(id: string): Promise<DocumentActionResult
     userId: doc.createdByUserId ?? user.id,
     organizationId: orgId,
     documentId: id,
-    fileName: doc.fileName,
+    fileName: doc.fileName ?? "document",
     ocrEnabled: org.ocrEnabled,
     ocrError: null,
     manualReviewRecommended: assessed.manualReviewRequired,
@@ -347,7 +356,7 @@ export async function retryDocumentOcr(id: string): Promise<DocumentActionResult
 export async function bulkArchiveDocuments(
   ids: string[],
 ): Promise<DocumentActionResult> {
-  const { organizationId: orgId, user } = await requirePermission("documents.write");
+  const { organizationId: orgId } = await requirePermission("documents.write");
   if (!ids.length) return { ok: false, error: "Nie wybrano faktur." };
   await prisma.document.updateMany({
     where: { id: { in: ids }, organizationId: orgId },
@@ -360,7 +369,7 @@ export async function bulkArchiveDocuments(
 export async function bulkUnarchiveDocuments(
   ids: string[],
 ): Promise<DocumentActionResult> {
-  const { organizationId: orgId, user } = await requirePermission("documents.write");
+  const { organizationId: orgId } = await requirePermission("documents.write");
   if (!ids.length) return { ok: false, error: "Nie wybrano faktur." };
   await prisma.document.updateMany({
     where: { id: { in: ids }, organizationId: orgId },
@@ -373,7 +382,10 @@ export async function bulkUnarchiveDocuments(
 export async function bulkApproveDocuments(
   ids: string[],
 ): Promise<DocumentActionResult> {
-  const { organizationId: orgId, user } = await requirePermission("documents.write");
+  const ctx = await requirePermission("documents.write");
+  const gate = requireActionModule(ctx, "APPROVALS");
+  if (gate) return { ok: false, error: gate };
+  const { organizationId: orgId } = ctx;
   if (!ids.length) return { ok: false, error: "Nie wybrano faktur." };
   await prisma.document.updateMany({
     where: { id: { in: ids }, organizationId: orgId },
@@ -386,7 +398,7 @@ export async function bulkApproveDocuments(
 export async function bulkDeleteDocuments(
   ids: string[],
 ): Promise<DocumentActionResult> {
-  const { organizationId: orgId, user } = await requirePermission("documents.write");
+  const { organizationId: orgId } = await requirePermission("documents.write");
   if (!ids.length) return { ok: false, error: "Nie wybrano faktur." };
   await prisma.$transaction(async (tx) => {
     await tx.documentHistory.deleteMany({

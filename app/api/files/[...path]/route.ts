@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import fs from "fs/promises";
 import path from "path";
 
-import { getAppContext } from "@/lib/app-context";
+import { getApiAppContext } from "@/lib/api-app-context";
 import prisma from "@/lib/prisma";
 import { isLimitedToOwnDocuments } from "@/lib/permissions";
 
@@ -17,7 +17,9 @@ export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ path: string[] }> },
 ) {
-  const { organizationId: orgId, user } = await getAppContext();
+  const resolved = await getApiAppContext("documents.read");
+  if (!resolved.ok) return resolved.response;
+  const { organizationId: orgId, user } = resolved.ctx;
 
   const segments = (await params).path;
   if (!segments || segments.length === 0) {

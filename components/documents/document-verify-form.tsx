@@ -6,6 +6,8 @@ import { useRouter } from "next/navigation";
 
 import { submitVerifyDocumentAction } from "@/app/actions/documents";
 import { DocumentVerifyOcrPanel } from "@/components/documents/document-verify-ocr";
+import { InvoiceParseSummary } from "@/components/documents/invoice-parse-summary";
+import type { ParsedInvoice } from "@/lib/ocr/invoice-types";
 import { Button } from "@/components/ui/button";
 import { ErrorBanner } from "@/components/ui/error-banner";
 import { Input } from "@/components/ui/input";
@@ -29,8 +31,12 @@ export function DocumentVerifyForm(props: {
   projects: Project[];
   contractors: Contractor[];
   ocrMeanConfidence: number | null;
+  ocrParsingConfidence: number | null;
+  ocrProcessingStatus?: string | null;
+  ocrProcessingError?: string | null;
   manualReviewRecommended: boolean;
   qualityReasons: unknown;
+  parsedInvoice: ParsedInvoice | null;
 }) {
   const router = useRouter();
   const boundAction = submitVerifyDocumentAction.bind(null, props.documentId);
@@ -55,9 +61,13 @@ export function DocumentVerifyForm(props: {
       <DocumentVerifyOcrPanel
         documentId={props.documentId}
         ocrMeanConfidence={props.ocrMeanConfidence}
+        ocrParsingConfidence={props.ocrParsingConfidence}
+        ocrProcessingStatus={props.ocrProcessingStatus}
+        ocrProcessingError={props.ocrProcessingError}
         manualReviewRecommended={props.manualReviewRecommended}
         qualityReasons={props.qualityReasons}
       />
+      <InvoiceParseSummary parsed={props.parsedInvoice} />
       <form action={formAction} className="mt-4 flex flex-col gap-4">
         {state.status === "invalid" ? <ErrorBanner message={state.message} /> : null}
         <input type="hidden" name="expenseCategory" value={val("expenseCategory")} />
@@ -176,7 +186,7 @@ export function DocumentVerifyForm(props: {
             ) : null}
           </div>
           <div className="space-y-1.5">
-            <Label htmlFor="ocrContractorNip">NIP na dokumencie</Label>
+            <Label htmlFor="ocrContractorNip">NIP sprzedawcy (na dokumencie)</Label>
             <Input
               id="ocrContractorNip"
               name="ocrContractorNip"
@@ -194,11 +204,11 @@ export function DocumentVerifyForm(props: {
             )}
           </div>
           <div className="space-y-1.5">
-            <Label htmlFor="ocrBankAccount">Rachunek bankowy (IBAN)</Label>
+            <Label htmlFor="ocrBankAccount">Rachunek bankowy (IBAN, opcjonalnie)</Label>
             <Input
               id="ocrBankAccount"
               name="ocrBankAccount"
-              placeholder="PL…"
+              placeholder="Opcjonalnie — pełny numer PL…"
               key={`ocrBankAccount-${val("ocrBankAccount")}`}
               defaultValue={val("ocrBankAccount")}
               className={cn(fieldErr("ocrBankAccount") && "border-destructive")}

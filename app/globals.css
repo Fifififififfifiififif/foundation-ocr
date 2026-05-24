@@ -164,7 +164,7 @@ html[data-accent-gradient="1"] [data-slot="button"][data-variant="default"]:not(
   --card-foreground: #fafafa;
   --popover: #09090b;
   --popover-foreground: #fafafa;
-  --primary: #fafafa;
+  /* --primary / --ring: nadpisuje AppearanceHydrator (kolor fundacji) */
   --primary-foreground: #18181b;
   --secondary: #27272a;
   --secondary-foreground: #fafafa;
@@ -182,4 +182,32 @@ html[data-accent-gradient="1"] [data-slot="button"][data-variant="default"]:not(
   --sidebar-accent: #27272a;
   --sidebar-accent-foreground: #fafafa;
   --sidebar-border: #27272a;
+}
+
+/* Jedna widoczna szyna przewijania — panel boczny przewija się, ale bez drugiego paska */
+.sidebar-nav-scroll {
+  scrollbar-width: none;
+}
+.sidebar-nav-scroll::-webkit-scrollbar {
+  display: none;
+}
+
+/* Ręczna faktura: bez podwójnego scrolla i bez przewijania pod przyciskiem */
+.manual-invoice-page {
+  margin-bottom: -1.5rem;
+  padding-bottom: 0;
+}
+@media (min-width: 768px) {
+  .manual-invoice-page {
+    margin-bottom: -2rem;
+  }
+}
+
+html:has(.manual-invoice-page) {
+  overflow: hidden;
+  height: 100%;
+}
+html:has(.manual-invoice-page) body {
+  overflow: hidden;
+  height: 100%;
 }

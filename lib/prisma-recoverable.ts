@@ -16,7 +16,9 @@ export function isPrismaMissingSchemaObject(e: unknown): boolean {
   }
   if (e instanceof Error) {
     const m = e.message.toLowerCase();
-    if (m.includes("does not exist") && (m.includes("table") || m.includes("relation"))) return true;
+    if (m.includes("does not exist") && (m.includes("table") || m.includes("relation") || m.includes("column"))) {
+      return true;
+    }
   }
   return false;
 }

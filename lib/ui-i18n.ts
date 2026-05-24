@@ -51,15 +51,21 @@ export function auditFieldPl(fieldName: string): string {
   return map[fieldName] ?? fieldName;
 }
 
-/** Etykieta roli w organizacji (enum Prisma / Better Auth). */
+/** Etykieta roli w organizacji (enum Prisma). */
 export function organizationRolePl(role: string | null | undefined): string {
   switch (role) {
+    case "OWNER":
+      return "Właściciel organizacji";
     case "ADMIN":
       return "Administrator";
     case "ACCOUNTANT":
       return "Księgowy";
     case "MANAGER":
       return "Menedżer";
+    case "MEMBER":
+      return "Członek";
+    case "VIEWER":
+      return "Podgląd";
     case "USER":
       return "Użytkownik";
     default:

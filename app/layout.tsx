@@ -1,11 +1,9 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
-import { headers } from "next/headers";
 
 import { AppearanceHydrator } from "@/components/providers/appearance-hydrator";
-import { auth } from "@/lib/auth";
+import { tryResolveAppearanceOrganizationId } from "@/lib/app-context";
 import { getOrganizationById } from "@/lib/organization-settings";
-import prisma from "@/lib/prisma";
 import "./globals.css";
 
 const geistSans = Geist({ variable: "--font-geist-sans", subsets: ["latin"] });
@@ -21,18 +19,12 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   let accentColor = "#18181b";
   let fontColor: string | null = null;
   try {
-    const session = await auth.api.getSession({ headers: await headers() });
-    if (session?.user?.id) {
-      const u = await prisma.user.findUnique({
-        where: { id: session.user.id },
-        select: { organizationId: true },
-      });
-      if (u?.organizationId) {
-        const s = await getOrganizationById(u.organizationId);
-        appearanceTheme = s.appearanceTheme;
-        accentColor = s.accentColor;
-        fontColor = s.fontColor;
-      }
+    const orgId = await tryResolveAppearanceOrganizationId();
+    if (orgId) {
+      const s = await getOrganizationById(orgId);
+      appearanceTheme = s.appearanceTheme;
+      accentColor = s.accentColor;
+      fontColor = s.fontColor;
     }
   } catch {
     /* build / brak bazy */

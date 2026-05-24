@@ -13,9 +13,11 @@ import {
 import { ErrorBanner } from "@/components/ui/error-banner";
 import prisma from "@/lib/prisma";
 import { sanitizeOcrErrorQueryParam } from "@/lib/ocr";
+import { deserializeParsedInvoice } from "@/lib/ocr/deserialize-parsed";
+import { deriveOcrDisplayStatus } from "@/lib/ocr-display-status";
 import { formatMoneyPl } from "@/lib/format/money";
 import type { VerifyDocumentFieldKey } from "@/lib/document-form-snapshot";
-import { getAppContext } from "@/lib/app-context";
+import { requirePermission } from "@/lib/require-permission";
 
 export default async function VerifyDocumentPage({
   params,
@@ -30,7 +32,7 @@ export default async function VerifyDocumentPage({
   const ocrError = sanitizeOcrErrorQueryParam(ocrErrorRaw);
   const formError = typeof sp.error === "string" ? sp.error : null;
 
-  const { organizationId: orgId } = await getAppContext();
+  const { organizationId: orgId } = await requirePermission("documents.ocr_verify");
 
   const doc = await prisma.document.findFirst({
     where: { id, organizationId: orgId },
@@ -51,7 +53,7 @@ export default async function VerifyDocumentPage({
     }),
   ]);
 
-  const fileUrl = `/api/files/${encodeURIComponent(doc.filePath)}`;
+  const fileUrl = doc.filePath ? `/api/files/${encodeURIComponent(doc.filePath)}` : null;
 
   const defaultFieldValues: Record<VerifyDocumentFieldKey, string> = {
     invoiceNumber: doc.invoiceNumber ?? "",
@@ -75,6 +77,7 @@ export default async function VerifyDocumentPage({
   const grossHint =
     doc.amountGross != null ? formatMoneyPl(Number(doc.amountGross)) : null;
   const vatHint = doc.amountVat != null ? formatMoneyPl(Number(doc.amountVat)) : null;
+  const ocrDisplay = deriveOcrDisplayStatus(doc.ocrRawText, ocrError);
 
   return (
     <div className="mx-auto flex max-w-6xl flex-col gap-6">
@@ -109,19 +112,25 @@ export default async function VerifyDocumentPage({
               <CardDescription>{doc.fileName}</CardDescription>
             </CardHeader>
             <CardContent className="min-h-0 flex-1 p-0">
-              {doc.mimeType === "application/pdf" ? (
-                <iframe
-                  title="Podgląd dokumentu"
-                  src={fileUrl}
-                  className="h-[70vh] w-full border-0"
-                />
+              {fileUrl ? (
+                doc.mimeType === "application/pdf" ? (
+                  <iframe
+                    title="Podgląd dokumentu"
+                    src={fileUrl}
+                    className="h-[70vh] w-full border-0"
+                  />
+                ) : (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={fileUrl}
+                    alt="Dokument"
+                    className="max-h-[70vh] w-full object-contain"
+                  />
+                )
               ) : (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
-                  src={fileUrl}
-                  alt="Dokument"
-                  className="max-h-[70vh] w-full object-contain"
-                />
+                <p className="text-muted-foreground p-8 text-sm">
+                  Brak pliku — edytuj pola ręcznie lub prześlij skan w szczegółach dokumentu.
+                </p>
               )}
             </CardContent>
           </Card>
@@ -160,8 +169,12 @@ export default async function VerifyDocumentPage({
               projects={projects}
               contractors={contractors}
               ocrMeanConfidence={doc.ocrMeanConfidence}
+              ocrParsingConfidence={doc.ocrParsingConfidence}
+              ocrProcessingStatus={ocrDisplay.status}
+              ocrProcessingError={ocrDisplay.error}
               manualReviewRecommended={doc.ocrManualReviewRecommended}
               qualityReasons={doc.ocrQualityReasons}
+              parsedInvoice={deserializeParsedInvoice(doc.ocrParsedJson)}
             />
           </CardContent>
         </Card>

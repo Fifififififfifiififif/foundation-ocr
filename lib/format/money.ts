@@ -17,7 +17,7 @@ export function parseMoneyToNumber(raw: string): number | null {
   const hasDot = s.includes(".");
 
   if (hasComma && hasDot) {
-    // If last separator is comma → European (1.234,56)
+    // Ostatni separator dziesiętny: przecinek (EU 1.234,56) lub kropka (US/UK 1,234.56)
     if (s.lastIndexOf(",") > s.lastIndexOf(".")) {
       s = s.replace(/\./g, "").replace(",", ".");
     } else {
@@ -36,7 +36,7 @@ export function parseMoneyToNumber(raw: string): number | null {
 export function parseFirstMoneyInSegment(segment: string): number | null {
   const cleaned = segment.replace(CURRENCY_NOISE, " ").replace(/\u00a0/g, " ");
   const candidates: number[] = [];
-  const re = /(?:\d{1,3}(?:[.\s]\d{3})+|\d+)\s*[.,]\s*\d{2}/g;
+  const re = /(?:\d{1,3}(?:[.,\s]\d{3})+|\d+)\s*[.,]\s*\d{2}/g;
   let m: RegExpExecArray | null;
   while ((m = re.exec(cleaned)) !== null) {
     const n = parseMoneyToNumber(m[0]);

@@ -8,10 +8,10 @@ import prisma from "@/lib/prisma";
 import { Prisma } from "@/generated/prisma";
 import { UNASSIGNED_LABEL } from "@/lib/optional-relation-ids";
 import { documentStatusPl } from "@/lib/ui-i18n";
-import { getAppContext } from "@/lib/app-context";
+import { requireEntitlementModule } from "@/lib/require-entitlement";
 
 export default async function RaportyPage() {
-  const { organizationId: orgId } = await getAppContext();
+  const { organizationId: orgId } = await requireEntitlementModule("ANALYTICS");
   const since = startOfMonth(subMonths(new Date(), 11));
   const docWhere = { organizationId: orgId, archived: false as const };
 

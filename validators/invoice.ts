@@ -104,6 +104,8 @@ const invoiceCoreFields = {
     .transform((v) => {
       const t = (v ?? "").trim().replace(/\s/g, "").toUpperCase();
       if (!t) return null;
+      /** Niepełny IBAN (np. samo „PL”) — traktuj jako puste, pole jest opcjonalne. */
+      if (t.length < 15 || !/^[A-Z]{2}\d{2}/.test(t)) return null;
       return t.length <= 34 ? t : t.slice(0, 34);
     }),
   expenseCategory: z

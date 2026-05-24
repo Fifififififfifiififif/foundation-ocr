@@ -1,5 +1,5 @@
 /**
- * Opcje `pg.Pool` spójne z runtime (`lib/prisma.ts`).
+ * Opcje `pg.Pool` dla `lib/prisma.ts` (driver adapter).
  * Dla hostów zdalnych (Supabase): domyślnie poluzowana weryfikacja TLS na Windows / za proxy.
  */
 

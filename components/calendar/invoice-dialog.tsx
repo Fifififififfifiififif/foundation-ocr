@@ -71,17 +71,15 @@ export function InvoiceDayDialog({ open, onOpenChange, date, invoices, onRefresh
       const pack = (await res.json()) as {
         csv: string;
         metadata: unknown;
-        documents: { fileName: string; downloadUrl: string }[];
+        documents: { fileName: string | null; downloadUrl: string | null }[];
       };
       const zip = new JSZip();
       const folder = zip.folder("faktury");
       if (!folder) throw new Error("zip");
       for (const d of pack.documents) {
+        if (!d.downloadUrl || !d.fileName) continue;
         const fileRes = await fetch(d.downloadUrl, { credentials: "include" });
-        if (!fileRes.ok) {
-          toast.error(`Nie udało się pobrać: ${d.fileName}`);
-          return;
-        }
+        if (!fileRes.ok) continue;
         folder.file(d.fileName, await fileRes.arrayBuffer());
       }
       zip.file("podsumowanie.csv", pack.csv);
@@ -206,21 +204,23 @@ export function InvoiceDayDialog({ open, onOpenChange, date, invoices, onRefresh
                         <FileArchive className="size-3.5 opacity-90" />
                         Zip
                       </Button>
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        className="gap-1.5 text-foreground hover:bg-accent hover:text-accent-foreground dark:text-zinc-100 dark:hover:bg-white/10 [&_svg]:text-foreground"
-                        asChild
-                      >
-                        <a
-                          href={`/api/files/${encodeURIComponent(inv.filePath)}`}
-                          target="_blank"
-                          rel="noreferrer"
+                      {inv.filePath ? (
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="gap-1.5 text-foreground hover:bg-accent hover:text-accent-foreground dark:text-zinc-100 dark:hover:bg-white/10 [&_svg]:text-foreground"
+                          asChild
                         >
-                          <FileDown className="size-3.5 opacity-90" />
-                          Pobierz plik
-                        </a>
-                      </Button>
+                          <a
+                            href={`/api/files/${encodeURIComponent(inv.filePath)}`}
+                            target="_blank"
+                            rel="noreferrer"
+                          >
+                            <FileDown className="size-3.5 opacity-90" />
+                            Pobierz plik
+                          </a>
+                        </Button>
+                      ) : null}
                     </div>
                   </li>
                 );
